@@ -1,5 +1,19 @@
+import { config } from 'dotenv';
 import { z } from 'zod';
-import 'dotenv/config';
+import { resolve } from 'path';
+import { existsSync } from 'fs';
+
+// Load .env from monorepo root
+const rootEnv = resolve(process.cwd(), '../../.env');
+const localEnv = resolve(process.cwd(), '.env');
+
+if (existsSync(localEnv)) {
+  config({ path: localEnv });
+} else if (existsSync(rootEnv)) {
+  config({ path: rootEnv });
+} else {
+  config(); // Fallback to default behavior
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
