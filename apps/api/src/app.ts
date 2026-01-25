@@ -22,7 +22,7 @@ export async function buildApp() {
 
   // Plugins
   await app.register(cors, {
-    origin: env.NODE_ENV === 'production' ? false : true,
+    origin: env.NODE_ENV === 'production' ? env.APP_URL : true,
     credentials: true,
   });
 

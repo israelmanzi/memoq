@@ -6,7 +6,7 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
 # Build-time environment variables for Vite
-ARG VITE_API_URL=http://localhost:3000/api/v1
+ARG VITE_API_URL=http://localhost:5064/api/v1
 ENV VITE_API_URL=$VITE_API_URL
 
 # Copy workspace files
@@ -28,7 +28,10 @@ RUN pnpm --filter @oxy/web build
 # Production stage - serve with nginx
 FROM nginx:alpine AS runner
 
-# Copy custom nginx config
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Copy nginx config
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy built static files

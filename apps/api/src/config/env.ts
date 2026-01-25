@@ -27,7 +27,7 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().default('OXY <noreply@resend.dev>'),
   // App URL for email links
-  APP_URL: z.string().default('http://localhost:5173'),
+  APP_URL: z.string().default('http://localhost:5063'),
 });
 
 const parsed = envSchema.safeParse(process.env);
