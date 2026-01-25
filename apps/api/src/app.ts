@@ -8,6 +8,8 @@ import authPlugin from './middleware/auth.js';
 import { authRoutes } from './routes/auth.js';
 import { orgRoutes } from './routes/organizations.js';
 import { tmRoutes } from './routes/tm.js';
+import { projectRoutes } from './routes/projects.js';
+import { documentRoutes } from './routes/documents.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -45,6 +47,8 @@ export async function buildApp() {
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(orgRoutes, { prefix: '/api/v1/organizations' });
   await app.register(tmRoutes, { prefix: '/api/v1/tm' });
+  await app.register(projectRoutes, { prefix: '/api/v1/projects' });
+  await app.register(documentRoutes, { prefix: '/api/v1/documents' });
 
   return app;
 }
