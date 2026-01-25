@@ -1,0 +1,180 @@
+import type {
+  ORG_ROLES,
+  PROJECT_ROLES,
+  DOCUMENT_ROLES,
+  WORKFLOW_TYPES,
+  WORKFLOW_STATUSES,
+  SEGMENT_STATUSES,
+  PROJECT_STATUSES,
+  SUPPORTED_FILE_TYPES,
+} from './constants.js';
+
+// Role types
+export type OrgRole = (typeof ORG_ROLES)[number];
+export type ProjectRole = (typeof PROJECT_ROLES)[number];
+export type DocumentRole = (typeof DOCUMENT_ROLES)[number];
+
+// Status types
+export type WorkflowType = (typeof WORKFLOW_TYPES)[number];
+export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
+export type SegmentStatus = (typeof SEGMENT_STATUSES)[number];
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export type FileType = (typeof SUPPORTED_FILE_TYPES)[number];
+
+// Entity types
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface OrgMembership {
+  id: string;
+  userId: string;
+  orgId: string;
+  role: OrgRole;
+  createdAt: Date;
+}
+
+export interface TranslationMemory {
+  id: string;
+  orgId: string;
+  name: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  createdBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TranslationUnit {
+  id: string;
+  tmId: string;
+  sourceText: string;
+  targetText: string;
+  sourceHash: string;
+  contextPrev: string | null;
+  contextNext: string | null;
+  createdBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  metadata: Record<string, unknown>;
+}
+
+export interface TermBase {
+  id: string;
+  orgId: string;
+  name: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  createdBy: string | null;
+  createdAt: Date;
+}
+
+export interface Term {
+  id: string;
+  tbId: string;
+  sourceTerm: string;
+  targetTerm: string;
+  definition: string | null;
+  createdBy: string | null;
+  createdAt: Date;
+}
+
+export interface Project {
+  id: string;
+  orgId: string;
+  name: string;
+  description: string | null;
+  sourceLanguage: string;
+  targetLanguage: string;
+  workflowType: WorkflowType;
+  status: ProjectStatus;
+  createdBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Document {
+  id: string;
+  projectId: string;
+  name: string;
+  fileType: FileType;
+  originalContent: string | null;
+  workflowStatus: WorkflowStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Segment {
+  id: string;
+  documentId: string;
+  segmentIndex: number;
+  sourceText: string;
+  targetText: string | null;
+  status: SegmentStatus;
+  lockedBy: string | null;
+  lastModifiedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// API types
+export interface TMMatch {
+  id: string;
+  sourceText: string;
+  targetText: string;
+  matchPercent: number;
+  isContextMatch: boolean;
+}
+
+export interface TermMatch {
+  id: string;
+  sourceTerm: string;
+  targetTerm: string;
+  position: { start: number; end: number };
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+// Auth types
+export interface AuthUser extends User {
+  organizations: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    role: OrgRole;
+  }>;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  name: string;
+}
+
+export interface AuthResponse {
+  user: AuthUser;
+  token: string;
+}
