@@ -1,5 +1,6 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
+import { logger } from './config/logger.js';
 import { checkConnection } from './db/index.js';
 
 async function main() {
@@ -13,9 +14,9 @@ async function main() {
       host: '0.0.0.0',
     });
 
-    console.log(`Server running at http://${env.API_HOST}:${env.API_PORT}`);
+    logger.info({ port: env.API_PORT, host: env.API_HOST }, 'Server started');
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.fatal({ err: error }, 'Failed to start server');
     process.exit(1);
   }
 }

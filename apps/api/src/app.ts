@@ -3,12 +3,11 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import { env } from './config/env.js';
+import { logger } from './config/logger.js';
 
 export async function buildApp() {
   const app = Fastify({
-    logger: {
-      level: env.NODE_ENV === 'production' ? 'info' : 'debug',
-    },
+    loggerInstance: logger,
   });
 
   // Plugins
