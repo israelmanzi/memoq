@@ -1,6 +1,6 @@
 import argon2 from 'argon2';
-import { sql } from '../db/index.js';
-import { nanoid } from 'nanoid';
+import { eq } from 'drizzle-orm';
+import { db, users, organizations, orgMemberships } from '../db/index.js';
 import type { AuthUser, User } from '@memoq/shared';
 
 export interface CreateUserInput {
@@ -11,39 +11,58 @@ export interface CreateUserInput {
 
 export async function createUser(input: CreateUserInput): Promise<User> {
   const passwordHash = await argon2.hash(input.password);
-  const id = nanoid();
 
-  const [user] = await sql<User[]>`
-    INSERT INTO users (id, email, password_hash, name)
-    VALUES (${id}, ${input.email.toLowerCase()}, ${passwordHash}, ${input.name})
-    RETURNING id, email, name, created_at as "createdAt", updated_at as "updatedAt"
-  `;
+  const [user] = await db
+    .insert(users)
+    .values({
+      email: input.email.toLowerCase(),
+      passwordHash,
+      name: input.name,
+    })
+    .returning({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+    });
 
   if (!user) {
     throw new Error('Failed to create user');
   }
 
-  return user;
+  return user as User;
 }
 
-export async function findUserByEmail(email: string): Promise<(User & { passwordHash: string }) | null> {
-  const [user] = await sql<(User & { passwordHash: string })[]>`
-    SELECT
-      id, email, name, password_hash as "passwordHash",
-      created_at as "createdAt", updated_at as "updatedAt"
-    FROM users
-    WHERE email = ${email.toLowerCase()}
-  `;
+export async function findUserByEmail(
+  email: string
+): Promise<(User & { passwordHash: string }) | null> {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      passwordHash: users.passwordHash,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+    })
+    .from(users)
+    .where(eq(users.email, email.toLowerCase()));
 
   return user ?? null;
 }
 
 export async function findUserById(id: string): Promise<User | null> {
-  const [user] = await sql<User[]>`
-    SELECT id, email, name, created_at as "createdAt", updated_at as "updatedAt"
-    FROM users
-    WHERE id = ${id}
-  `;
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+    })
+    .from(users)
+    .where(eq(users.id, id));
 
   return user ?? null;
 }
@@ -53,23 +72,22 @@ export async function verifyPassword(hash: string, password: string): Promise<bo
 }
 
 export async function getUserWithOrgs(userId: string): Promise<AuthUser | null> {
-  const [user] = await sql<User[]>`
-    SELECT id, email, name, created_at as "createdAt", updated_at as "updatedAt"
-    FROM users
-    WHERE id = ${userId}
-  `;
-
+  const user = await findUserById(userId);
   if (!user) {
     return null;
   }
 
-  const orgs = await sql<{ id: string; name: string; slug: string; role: string }[]>`
-    SELECT o.id, o.name, o.slug, om.role
-    FROM organizations o
-    JOIN org_memberships om ON om.org_id = o.id
-    WHERE om.user_id = ${userId}
-    ORDER BY o.name
-  `;
+  const orgs = await db
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      slug: organizations.slug,
+      role: orgMemberships.role,
+    })
+    .from(organizations)
+    .innerJoin(orgMemberships, eq(orgMemberships.orgId, organizations.id))
+    .where(eq(orgMemberships.userId, userId))
+    .orderBy(organizations.name);
 
   return {
     ...user,
@@ -83,9 +101,11 @@ export async function getUserWithOrgs(userId: string): Promise<AuthUser | null> 
 }
 
 export async function emailExists(email: string): Promise<boolean> {
-  const [result] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(SELECT 1 FROM users WHERE email = ${email.toLowerCase()}) as exists
-  `;
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, email.toLowerCase()))
+    .limit(1);
 
-  return result?.exists ?? false;
+  return !!user;
 }

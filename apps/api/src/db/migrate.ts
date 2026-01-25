@@ -1,28 +1,50 @@
-import { readFileSync } from 'fs';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { sql } from './index.js';
-import { logger } from '../config/logger.js';
+import { dirname, join, resolve } from 'path';
+import { config } from 'dotenv';
+import { existsSync } from 'fs';
+
+// Load env
+const rootEnv = resolve(process.cwd(), '../../.env');
+const localEnv = resolve(process.cwd(), '.env');
+
+if (existsSync(localEnv)) {
+  config({ path: localEnv });
+} else if (existsSync(rootEnv)) {
+  config({ path: rootEnv });
+} else {
+  config();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-async function migrate() {
-  logger.info('Running database migrations...');
+async function runMigrations() {
+  const connectionString = process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    console.error('DATABASE_URL is not set');
+    process.exit(1);
+  }
+
+  console.log('Running database migrations...');
+
+  const client = postgres(connectionString, { max: 1 });
+  const db = drizzle(client);
 
   try {
-    const schemaPath = join(__dirname, 'schema.sql');
-    const schema = readFileSync(schemaPath, 'utf-8');
-
-    await sql.unsafe(schema);
-
-    logger.info('Migrations completed successfully');
+    await migrate(db, {
+      migrationsFolder: join(__dirname, '../../drizzle'),
+    });
+    console.log('Migrations completed successfully');
   } catch (error) {
-    logger.error({ err: error }, 'Migration failed');
+    console.error('Migration failed:', error);
     process.exit(1);
   } finally {
-    await sql.end();
+    await client.end();
   }
 }
 
-migrate();
+runMigrations();

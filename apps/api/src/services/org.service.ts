@@ -1,5 +1,5 @@
-import { sql } from '../db/index.js';
-import { nanoid } from 'nanoid';
+import { eq, and, count } from 'drizzle-orm';
+import { db, organizations, orgMemberships, users } from '../db/index.js';
 import type { Organization, OrgMembership, OrgRole } from '@memoq/shared';
 
 export interface CreateOrgInput {
@@ -9,13 +9,19 @@ export interface CreateOrgInput {
 }
 
 export async function createOrg(input: CreateOrgInput): Promise<Organization> {
-  const id = nanoid();
-
-  const [org] = await sql<Organization[]>`
-    INSERT INTO organizations (id, name, slug)
-    VALUES (${id}, ${input.name}, ${input.slug.toLowerCase()})
-    RETURNING id, name, slug, created_at as "createdAt", updated_at as "updatedAt"
-  `;
+  const [org] = await db
+    .insert(organizations)
+    .values({
+      name: input.name,
+      slug: input.slug.toLowerCase(),
+    })
+    .returning({
+      id: organizations.id,
+      name: organizations.name,
+      slug: organizations.slug,
+      createdAt: organizations.createdAt,
+      updatedAt: organizations.updatedAt,
+    });
 
   if (!org) {
     throw new Error('Failed to create organization');
@@ -28,50 +34,67 @@ export async function createOrg(input: CreateOrgInput): Promise<Organization> {
     role: 'admin',
   });
 
-  return org;
+  return org as Organization;
 }
 
 export async function findOrgById(id: string): Promise<Organization | null> {
-  const [org] = await sql<Organization[]>`
-    SELECT id, name, slug, created_at as "createdAt", updated_at as "updatedAt"
-    FROM organizations
-    WHERE id = ${id}
-  `;
+  const [org] = await db
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      slug: organizations.slug,
+      createdAt: organizations.createdAt,
+      updatedAt: organizations.updatedAt,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, id));
 
   return org ?? null;
 }
 
 export async function findOrgBySlug(slug: string): Promise<Organization | null> {
-  const [org] = await sql<Organization[]>`
-    SELECT id, name, slug, created_at as "createdAt", updated_at as "updatedAt"
-    FROM organizations
-    WHERE slug = ${slug.toLowerCase()}
-  `;
+  const [org] = await db
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      slug: organizations.slug,
+      createdAt: organizations.createdAt,
+      updatedAt: organizations.updatedAt,
+    })
+    .from(organizations)
+    .where(eq(organizations.slug, slug.toLowerCase()));
 
   return org ?? null;
 }
 
 export async function slugExists(slug: string): Promise<boolean> {
-  const [result] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(SELECT 1 FROM organizations WHERE slug = ${slug.toLowerCase()}) as exists
-  `;
+  const [org] = await db
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.slug, slug.toLowerCase()))
+    .limit(1);
 
-  return result?.exists ?? false;
+  return !!org;
 }
 
-export async function listUserOrgs(userId: string): Promise<(Organization & { role: OrgRole })[]> {
-  const orgs = await sql<(Organization & { role: OrgRole })[]>`
-    SELECT
-      o.id, o.name, o.slug,
-      o.created_at as "createdAt", o.updated_at as "updatedAt",
-      om.role
-    FROM organizations o
-    JOIN org_memberships om ON om.org_id = o.id
-    WHERE om.user_id = ${userId}
-    ORDER BY o.name
-  `;
+export async function listUserOrgs(
+  userId: string
+): Promise<(Organization & { role: OrgRole })[]> {
+  const orgs = await db
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      slug: organizations.slug,
+      createdAt: organizations.createdAt,
+      updatedAt: organizations.updatedAt,
+      role: orgMemberships.role,
+    })
+    .from(organizations)
+    .innerJoin(orgMemberships, eq(orgMemberships.orgId, organizations.id))
+    .where(eq(orgMemberships.userId, userId))
+    .orderBy(organizations.name);
 
-  return orgs;
+  return orgs as (Organization & { role: OrgRole })[];
 }
 
 export interface AddMemberInput {
@@ -81,47 +104,55 @@ export interface AddMemberInput {
 }
 
 export async function addMember(input: AddMemberInput): Promise<OrgMembership> {
-  const id = nanoid();
-
-  const [membership] = await sql<OrgMembership[]>`
-    INSERT INTO org_memberships (id, org_id, user_id, role)
-    VALUES (${id}, ${input.orgId}, ${input.userId}, ${input.role})
-    ON CONFLICT (user_id, org_id) DO UPDATE SET role = ${input.role}
-    RETURNING
-      id,
-      user_id as "userId",
-      org_id as "orgId",
-      role,
-      created_at as "createdAt"
-  `;
+  const [membership] = await db
+    .insert(orgMemberships)
+    .values({
+      orgId: input.orgId,
+      userId: input.userId,
+      role: input.role,
+    })
+    .onConflictDoUpdate({
+      target: [orgMemberships.userId, orgMemberships.orgId],
+      set: { role: input.role },
+    })
+    .returning({
+      id: orgMemberships.id,
+      userId: orgMemberships.userId,
+      orgId: orgMemberships.orgId,
+      role: orgMemberships.role,
+      createdAt: orgMemberships.createdAt,
+    });
 
   if (!membership) {
     throw new Error('Failed to add member');
   }
 
-  return membership;
+  return membership as OrgMembership;
 }
 
 export async function removeMember(orgId: string, userId: string): Promise<void> {
-  await sql`
-    DELETE FROM org_memberships
-    WHERE org_id = ${orgId} AND user_id = ${userId}
-  `;
+  await db
+    .delete(orgMemberships)
+    .where(and(eq(orgMemberships.orgId, orgId), eq(orgMemberships.userId, userId)));
 }
 
-export async function getMembership(orgId: string, userId: string): Promise<OrgMembership | null> {
-  const [membership] = await sql<OrgMembership[]>`
-    SELECT
-      id,
-      user_id as "userId",
-      org_id as "orgId",
-      role,
-      created_at as "createdAt"
-    FROM org_memberships
-    WHERE org_id = ${orgId} AND user_id = ${userId}
-  `;
+export async function getMembership(
+  orgId: string,
+  userId: string
+): Promise<OrgMembership | null> {
+  const [membership] = await db
+    .select({
+      id: orgMemberships.id,
+      userId: orgMemberships.userId,
+      orgId: orgMemberships.orgId,
+      role: orgMemberships.role,
+      createdAt: orgMemberships.createdAt,
+    })
+    .from(orgMemberships)
+    .where(and(eq(orgMemberships.orgId, orgId), eq(orgMemberships.userId, userId)));
 
-  return membership ?? null;
+  if (!membership) return null;
+  return { ...membership, role: membership.role as OrgRole };
 }
 
 export interface OrgMemberWithUser {
@@ -136,47 +167,58 @@ export interface OrgMemberWithUser {
 }
 
 export async function listOrgMembers(orgId: string): Promise<OrgMemberWithUser[]> {
-  const members = await sql<OrgMemberWithUser[]>`
-    SELECT
-      om.id,
-      om.role,
-      om.created_at as "createdAt",
-      json_build_object(
-        'id', u.id,
-        'email', u.email,
-        'name', u.name
-      ) as user
-    FROM org_memberships om
-    JOIN users u ON u.id = om.user_id
-    WHERE om.org_id = ${orgId}
-    ORDER BY om.created_at
-  `;
+  const members = await db
+    .select({
+      id: orgMemberships.id,
+      role: orgMemberships.role,
+      createdAt: orgMemberships.createdAt,
+      userId: users.id,
+      userEmail: users.email,
+      userName: users.name,
+    })
+    .from(orgMemberships)
+    .innerJoin(users, eq(users.id, orgMemberships.userId))
+    .where(eq(orgMemberships.orgId, orgId))
+    .orderBy(orgMemberships.createdAt);
 
-  return members;
+  return members.map((m) => ({
+    id: m.id,
+    role: m.role as OrgRole,
+    createdAt: m.createdAt!,
+    user: {
+      id: m.userId,
+      email: m.userEmail,
+      name: m.userName,
+    },
+  }));
 }
 
-export async function updateMemberRole(orgId: string, userId: string, role: OrgRole): Promise<OrgMembership | null> {
-  const [membership] = await sql<OrgMembership[]>`
-    UPDATE org_memberships
-    SET role = ${role}
-    WHERE org_id = ${orgId} AND user_id = ${userId}
-    RETURNING
-      id,
-      user_id as "userId",
-      org_id as "orgId",
-      role,
-      created_at as "createdAt"
-  `;
+export async function updateMemberRole(
+  orgId: string,
+  userId: string,
+  role: OrgRole
+): Promise<OrgMembership | null> {
+  const [membership] = await db
+    .update(orgMemberships)
+    .set({ role })
+    .where(and(eq(orgMemberships.orgId, orgId), eq(orgMemberships.userId, userId)))
+    .returning({
+      id: orgMemberships.id,
+      userId: orgMemberships.userId,
+      orgId: orgMemberships.orgId,
+      role: orgMemberships.role,
+      createdAt: orgMemberships.createdAt,
+    });
 
-  return membership ?? null;
+  if (!membership) return null;
+  return { ...membership, role: membership.role as OrgRole };
 }
 
 export async function countOrgAdmins(orgId: string): Promise<number> {
-  const [result] = await sql<{ count: number }[]>`
-    SELECT COUNT(*)::int as count
-    FROM org_memberships
-    WHERE org_id = ${orgId} AND role = 'admin'
-  `;
+  const [result] = await db
+    .select({ count: count() })
+    .from(orgMemberships)
+    .where(and(eq(orgMemberships.orgId, orgId), eq(orgMemberships.role, 'admin')));
 
   return result?.count ?? 0;
 }
