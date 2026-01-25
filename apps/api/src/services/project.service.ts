@@ -70,8 +70,13 @@ export async function findProjectById(id: string): Promise<Project | null> {
 
 export async function listOrgProjects(
   orgId: string,
-  status?: ProjectStatus
-): Promise<Project[]> {
+  options: {
+    status?: ProjectStatus;
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<{ items: Project[]; total: number }> {
+  const { status, limit = 100, offset = 0 } = options;
   const conditions = [eq(projects.orgId, orgId)];
   if (status) {
     conditions.push(eq(projects.status, status));
@@ -81,9 +86,19 @@ export async function listOrgProjects(
     .select()
     .from(projects)
     .where(and(...conditions))
-    .orderBy(desc(projects.createdAt));
+    .orderBy(desc(projects.createdAt))
+    .limit(limit)
+    .offset(offset);
 
-  return result as Project[];
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(projects)
+    .where(and(...conditions));
+
+  return {
+    items: result as Project[],
+    total: countResult?.count ?? 0,
+  };
 }
 
 export async function updateProject(
@@ -266,14 +281,29 @@ export async function findDocumentById(id: string): Promise<Document | null> {
   return doc as Document | null;
 }
 
-export async function listProjectDocuments(projectId: string): Promise<Document[]> {
+export async function listProjectDocuments(
+  projectId: string,
+  options: { limit?: number; offset?: number } = {}
+): Promise<{ items: Document[]; total: number }> {
+  const { limit = 100, offset = 0 } = options;
+
   const docs = await db
     .select()
     .from(documents)
     .where(eq(documents.projectId, projectId))
-    .orderBy(desc(documents.createdAt));
+    .orderBy(desc(documents.createdAt))
+    .limit(limit)
+    .offset(offset);
 
-  return docs as Document[];
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(documents)
+    .where(eq(documents.projectId, projectId));
+
+  return {
+    items: docs as Document[],
+    total: countResult?.count ?? 0,
+  };
 }
 
 export async function updateDocumentStatus(
@@ -388,6 +418,81 @@ export async function updateSegmentsBulk(
   return updated;
 }
 
+// ============ Propagation ============
+
+export interface PropagateOptions {
+  documentId: string;
+  sourceText: string;
+  targetText: string;
+  excludeSegmentId?: string; // The segment we just edited
+  status?: SegmentStatus;
+  lastModifiedBy?: string;
+}
+
+export interface PropagateResult {
+  propagatedCount: number;
+  segmentIds: string[];
+}
+
+/**
+ * Propagate a translation to all identical untranslated segments in the document
+ */
+export async function propagateTranslation(
+  options: PropagateOptions
+): Promise<PropagateResult> {
+  const {
+    documentId,
+    sourceText,
+    targetText,
+    excludeSegmentId,
+    status = 'translated',
+    lastModifiedBy,
+  } = options;
+
+  // Find all segments with identical source text that are untranslated or draft
+  const allSegments = await listDocumentSegments(documentId);
+
+  const segmentsToUpdate = allSegments.filter((seg) => {
+    // Skip the segment we just edited
+    if (excludeSegmentId && seg.id === excludeSegmentId) {
+      return false;
+    }
+
+    // Only propagate to untranslated or draft segments
+    const segStatus = seg.status ?? 'untranslated';
+    if (!['untranslated', 'draft'].includes(segStatus)) {
+      return false;
+    }
+
+    // Check if source text matches (case-sensitive exact match)
+    return seg.sourceText === sourceText;
+  });
+
+  if (segmentsToUpdate.length === 0) {
+    return { propagatedCount: 0, segmentIds: [] };
+  }
+
+  // Update all matching segments
+  const segmentIds: string[] = [];
+  for (const seg of segmentsToUpdate) {
+    await db
+      .update(segments)
+      .set({
+        targetText,
+        status,
+        lastModifiedBy,
+        updatedAt: new Date(),
+      })
+      .where(eq(segments.id, seg.id));
+    segmentIds.push(seg.id);
+  }
+
+  return {
+    propagatedCount: segmentIds.length,
+    segmentIds,
+  };
+}
+
 // ============ Pre-translation ============
 
 export interface PreTranslateOptions {
@@ -500,7 +605,7 @@ export async function getProjectStats(projectId: string) {
     .from(documents)
     .where(eq(documents.projectId, projectId));
 
-  const docs = await listProjectDocuments(projectId);
+  const { items: docs } = await listProjectDocuments(projectId, { limit: 1000 });
   let totalSegments = 0;
   let translatedSegments = 0;
   let reviewedSegments = 0;

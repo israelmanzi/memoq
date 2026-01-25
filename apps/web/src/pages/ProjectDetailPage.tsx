@@ -3,6 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { projectsApi, tmApi, tbApi } from '../api';
 import { useOrgStore } from '../stores/org';
+import { Pagination } from '../components/Pagination';
+
+const DOCS_PAGE_SIZE = 10;
 
 export function ProjectDetailPage() {
   const { projectId } = useParams({ from: '/protected/projects/$projectId' });
@@ -10,6 +13,7 @@ export function ProjectDetailPage() {
   const { currentOrg } = useOrgStore();
   const [showAddDocModal, setShowAddDocModal] = useState(false);
   const [showAddResourceModal, setShowAddResourceModal] = useState(false);
+  const [docsOffset, setDocsOffset] = useState(0);
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
@@ -17,8 +21,8 @@ export function ProjectDetailPage() {
   });
 
   const { data: docsData } = useQuery({
-    queryKey: ['documents', projectId],
-    queryFn: () => projectsApi.listDocuments(projectId),
+    queryKey: ['documents', projectId, docsOffset],
+    queryFn: () => projectsApi.listDocuments(projectId, { limit: DOCS_PAGE_SIZE, offset: docsOffset }),
     enabled: !!project,
   });
 
@@ -29,6 +33,7 @@ export function ProjectDetailPage() {
   });
 
   const documents = docsData?.items ?? [];
+  const docsTotal = docsData?.total ?? 0;
   const resources = resourcesData?.items ?? [];
 
   if (isLoading) {
@@ -112,34 +117,42 @@ export function ProjectDetailPage() {
               No documents yet. Upload a document to start translating.
             </div>
           ) : (
-            documents.map((doc) => (
-              <Link
-                key={doc.id}
-                to="/documents/$documentId"
-                params={{ documentId: doc.id }}
-                className="block px-6 py-4 hover:bg-gray-50"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900">{doc.name}</div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      {doc.totalSegments} segments • {doc.progress}% complete
+            <>
+              {documents.map((doc) => (
+                <Link
+                  key={doc.id}
+                  to="/documents/$documentId"
+                  params={{ documentId: doc.id }}
+                  className="block px-6 py-4 hover:bg-gray-50"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-gray-900">{doc.name}</div>
+                      <div className="text-sm text-gray-500 mt-1">
+                        {doc.totalSegments} segments • {doc.progress}% complete
+                      </div>
                     </div>
+                    <span
+                      className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        doc.workflowStatus === 'complete'
+                          ? 'bg-green-100 text-green-700'
+                          : doc.workflowStatus === 'translation'
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : 'bg-blue-100 text-blue-700'
+                      }`}
+                    >
+                      {doc.workflowStatus}
+                    </span>
                   </div>
-                  <span
-                    className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      doc.workflowStatus === 'complete'
-                        ? 'bg-green-100 text-green-700'
-                        : doc.workflowStatus === 'translation'
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-blue-100 text-blue-700'
-                    }`}
-                  >
-                    {doc.workflowStatus}
-                  </span>
-                </div>
-              </Link>
-            ))
+                </Link>
+              ))}
+              <Pagination
+                total={docsTotal}
+                limit={DOCS_PAGE_SIZE}
+                offset={docsOffset}
+                onPageChange={setDocsOffset}
+              />
+            </>
           )}
         </div>
       </div>

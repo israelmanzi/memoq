@@ -93,19 +93,21 @@ export async function tbRoutes(app: FastifyInstance) {
   );
 
   // List TBs for organization
-  app.get<{ Params: { orgId: string } }>(
+  app.get<{ Params: { orgId: string }; Querystring: { limit?: string; offset?: string } }>(
     '/org/:orgId',
     async (request, reply) => {
       const { orgId } = request.params;
       const { userId } = request.user;
+      const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
+      const offset = parseInt(request.query.offset || '0', 10);
 
       const membership = await getMembership(orgId, userId);
       if (!membership) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
-      const tbs = await listOrgTBs(orgId);
-      return reply.send({ items: tbs });
+      const result = await listOrgTBs(orgId, { limit, offset });
+      return reply.send(result);
     }
   );
 
@@ -397,7 +399,7 @@ export async function tbRoutes(app: FastifyInstance) {
         });
       }
 
-      const tbs = await listOrgTBs(orgId);
+      const { items: tbs } = await listOrgTBs(orgId, { limit: 1000 });
       const tbIds = tbs.map((tb) => tb.id);
 
       const matches = await findTermsInText({

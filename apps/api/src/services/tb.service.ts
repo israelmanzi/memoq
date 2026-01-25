@@ -1,6 +1,10 @@
 import { eq, and, sql, desc, inArray } from 'drizzle-orm';
-import { db, termBases, terms } from '../db/index.js';
+import { db, termBases, terms, users } from '../db/index.js';
 import type { TermBase, Term, TermMatch } from '@memoq/shared';
+
+export interface TermBaseWithCreator extends TermBase {
+  createdByName: string | null;
+}
 
 // ============ Term Base CRUD ============
 
@@ -40,14 +44,39 @@ export async function findTBById(id: string): Promise<TermBase | null> {
   return tb ?? null;
 }
 
-export async function listOrgTBs(orgId: string): Promise<TermBase[]> {
-  const tbs = await db
-    .select()
-    .from(termBases)
-    .where(eq(termBases.orgId, orgId))
-    .orderBy(desc(termBases.createdAt));
+export async function listOrgTBs(
+  orgId: string,
+  options: { limit?: number; offset?: number } = {}
+): Promise<{ items: TermBaseWithCreator[]; total: number }> {
+  const { limit = 100, offset = 0 } = options;
 
-  return tbs as TermBase[];
+  const tbs = await db
+    .select({
+      id: termBases.id,
+      orgId: termBases.orgId,
+      name: termBases.name,
+      sourceLanguage: termBases.sourceLanguage,
+      targetLanguage: termBases.targetLanguage,
+      createdBy: termBases.createdBy,
+      createdAt: termBases.createdAt,
+      createdByName: users.name,
+    })
+    .from(termBases)
+    .leftJoin(users, eq(termBases.createdBy, users.id))
+    .where(eq(termBases.orgId, orgId))
+    .orderBy(desc(termBases.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(termBases)
+    .where(eq(termBases.orgId, orgId));
+
+  return {
+    items: tbs as TermBaseWithCreator[],
+    total: countResult?.count ?? 0,
+  };
 }
 
 export async function deleteTB(id: string): Promise<void> {
@@ -78,8 +107,8 @@ export interface AddTermInput {
 }
 
 export async function addTerm(input: AddTermInput): Promise<Term> {
-  // Check for existing term with same source
-  const [existing] = await db
+  // Check for existing terms with same source (case-insensitive)
+  const existingTerms = await db
     .select()
     .from(terms)
     .where(
@@ -89,18 +118,48 @@ export async function addTerm(input: AddTermInput): Promise<Term> {
       )
     );
 
-  if (existing) {
-    // Update existing term
+  // Check if exact same source+target already exists
+  const exactMatch = existingTerms.find(
+    (t) => t.targetTerm.toLowerCase() === input.targetTerm.toLowerCase()
+  );
+
+  if (exactMatch) {
+    // Update definition only if it's an exact match
     const [updated] = await db
       .update(terms)
       .set({
-        targetTerm: input.targetTerm,
         definition: input.definition,
       })
-      .where(eq(terms.id, existing.id))
+      .where(eq(terms.id, exactMatch.id))
       .returning();
 
     return updated as Term;
+  }
+
+  // If there are existing terms with same source but different target,
+  // add version numbers to distinguish them
+  let sourceTerm = input.sourceTerm;
+  if (existingTerms.length > 0) {
+    // Check if existing terms already have version numbers
+    const hasVersions = existingTerms.some((t) => / #\d+$/.test(t.sourceTerm));
+
+    if (!hasVersions && existingTerms.length === 1) {
+      // Add #1 to the existing term
+      const existing = existingTerms[0]!;
+      await db
+        .update(terms)
+        .set({ sourceTerm: `${existing.sourceTerm} #1` })
+        .where(eq(terms.id, existing.id));
+    }
+
+    // Find the next version number
+    const versionNumbers = existingTerms
+      .map((t) => {
+        const match = t.sourceTerm.match(/ #(\d+)$/);
+        return match && match[1] ? parseInt(match[1], 10) : 1;
+      });
+    const nextVersion = Math.max(...versionNumbers) + 1;
+    sourceTerm = `${input.sourceTerm} #${nextVersion}`;
   }
 
   // Create new term
@@ -108,7 +167,7 @@ export async function addTerm(input: AddTermInput): Promise<Term> {
     .insert(terms)
     .values({
       tbId: input.tbId,
-      sourceTerm: input.sourceTerm,
+      sourceTerm,
       targetTerm: input.targetTerm,
       definition: input.definition,
       createdBy: input.createdBy,

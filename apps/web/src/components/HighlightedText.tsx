@@ -61,6 +61,11 @@ export function HighlightedText({ text, termMatches, onTermClick }: HighlightedT
             title={`${segment.match.sourceTerm} → ${segment.match.targetTerm}`}
             onClick={(e) => {
               e.stopPropagation();
+              // Only insert if user isn't selecting text
+              const selection = window.getSelection();
+              if (selection && selection.toString().trim()) {
+                return; // User is selecting text, don't insert
+              }
               onTermClick?.(segment.match!);
             }}
           >

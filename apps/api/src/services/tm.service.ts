@@ -46,7 +46,12 @@ export async function findTMById(id: string): Promise<TranslationMemory | null> 
   return tm ?? null;
 }
 
-export async function listOrgTMs(orgId: string): Promise<TranslationMemoryWithCreator[]> {
+export async function listOrgTMs(
+  orgId: string,
+  options: { limit?: number; offset?: number } = {}
+): Promise<{ items: TranslationMemoryWithCreator[]; total: number }> {
+  const { limit = 100, offset = 0 } = options;
+
   const tms = await db
     .select({
       id: translationMemories.id,
@@ -62,9 +67,19 @@ export async function listOrgTMs(orgId: string): Promise<TranslationMemoryWithCr
     .from(translationMemories)
     .leftJoin(users, eq(translationMemories.createdBy, users.id))
     .where(eq(translationMemories.orgId, orgId))
-    .orderBy(desc(translationMemories.createdAt));
+    .orderBy(desc(translationMemories.createdAt))
+    .limit(limit)
+    .offset(offset);
 
-  return tms as TranslationMemoryWithCreator[];
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(translationMemories)
+    .where(eq(translationMemories.orgId, orgId));
+
+  return {
+    items: tms as TranslationMemoryWithCreator[],
+    total: countResult?.count ?? 0,
+  };
 }
 
 export async function deleteTM(id: string): Promise<void> {

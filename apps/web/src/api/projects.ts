@@ -51,11 +51,20 @@ export interface SegmentWithMatchInfo extends Segment {
   hasContextMatch: boolean;
 }
 
+export interface PaginationParams {
+  limit?: number;
+  offset?: number;
+}
+
 export const projectsApi = {
   // Projects
-  list: (orgId: string, status?: ProjectStatus) => {
-    const query = status ? `?status=${status}` : '';
-    return api.get<{ items: Project[] }>(`/projects/org/${orgId}${query}`);
+  list: (orgId: string, options?: { status?: ProjectStatus } & PaginationParams) => {
+    const params = new URLSearchParams();
+    if (options?.status) params.set('status', options.status);
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+    const query = params.toString() ? `?${params}` : '';
+    return api.get<{ items: Project[]; total: number }>(`/projects/org/${orgId}${query}`);
   },
 
   get: (projectId: string) => api.get<ProjectWithStats>(`/projects/${projectId}`),
@@ -93,8 +102,13 @@ export const projectsApi = {
     api.delete(`/projects/${projectId}/resources/${resourceId}`),
 
   // Documents
-  listDocuments: (projectId: string) =>
-    api.get<{ items: DocumentWithStats[] }>(`/documents/project/${projectId}`),
+  listDocuments: (projectId: string, options?: PaginationParams) => {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+    const query = params.toString() ? `?${params}` : '';
+    return api.get<{ items: DocumentWithStats[]; total: number }>(`/documents/project/${projectId}${query}`);
+  },
 
   getDocument: (documentId: string) => api.get<DocumentWithStats>(`/documents/${documentId}`),
 
@@ -145,8 +159,11 @@ export const projectsApi = {
   updateSegment: (
     documentId: string,
     segmentId: string,
-    data: { targetText: string; status?: SegmentStatus; confirm?: boolean }
-  ) => api.patch<Segment>(`/documents/${documentId}/segments/${segmentId}`, data),
+    data: { targetText: string; status?: SegmentStatus; confirm?: boolean; propagate?: boolean }
+  ) => api.patch<Segment & { propagation?: { propagatedCount: number; segmentIds: string[] } }>(
+    `/documents/${documentId}/segments/${segmentId}`,
+    data
+  ),
 
   updateSegmentsBulk: (
     documentId: string,

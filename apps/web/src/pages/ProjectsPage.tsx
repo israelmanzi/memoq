@@ -3,21 +3,30 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { projectsApi } from '../api';
 import { useOrgStore } from '../stores/org';
+import { Pagination } from '../components/Pagination';
 import type { ProjectStatus } from '@memoq/shared';
+
+const PAGE_SIZE = 10;
 
 export function ProjectsPage() {
   const queryClient = useQueryClient();
   const { currentOrg } = useOrgStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | ''>('');
+  const [offset, setOffset] = useState(0);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['projects', currentOrg?.id, statusFilter],
-    queryFn: () => projectsApi.list(currentOrg!.id, statusFilter || undefined),
+    queryKey: ['projects', currentOrg?.id, statusFilter, offset],
+    queryFn: () => projectsApi.list(currentOrg!.id, {
+      status: statusFilter || undefined,
+      limit: PAGE_SIZE,
+      offset,
+    }),
     enabled: !!currentOrg,
   });
 
   const projects = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <div className="space-y-6">
@@ -35,7 +44,10 @@ export function ProjectsPage() {
       <div className="flex gap-4">
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as ProjectStatus | '')}
+          onChange={(e) => {
+            setStatusFilter(e.target.value as ProjectStatus | '');
+            setOffset(0); // Reset to first page on filter change
+          }}
           className="px-3 py-2 border border-gray-300 rounded-md text-sm"
         >
           <option value="">All statuses</option>
@@ -54,65 +66,73 @@ export function ProjectsPage() {
             No projects found. Create your first project to get started.
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
-            {projects.map((project) => (
-              <Link
-                key={project.id}
-                to="/projects/$projectId"
-                params={{ projectId: project.id }}
-                className="block px-6 py-4 hover:bg-gray-50"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3">
-                      <span className="font-medium text-gray-900">{project.name}</span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                        {project.sourceLanguage}
-                      </span>
-                      <span className="text-gray-400">→</span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                        {project.targetLanguage}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-xs text-gray-500 flex items-center gap-4">
-                      <span>
-                        Created{' '}
-                        {new Date(project.createdAt).toLocaleDateString(undefined, {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                      </span>
-                      <span>• {project.workflowType.replace(/_/g, ' ')}</span>
-                      {project.updatedAt !== project.createdAt && (
+          <>
+            <div className="divide-y divide-gray-200">
+              {projects.map((project) => (
+                <Link
+                  key={project.id}
+                  to="/projects/$projectId"
+                  params={{ projectId: project.id }}
+                  className="block px-6 py-4 hover:bg-gray-50"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium text-gray-900">{project.name}</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                          {project.sourceLanguage}
+                        </span>
+                        <span className="text-gray-400">→</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                          {project.targetLanguage}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500 flex items-center gap-4">
                         <span>
-                          • Modified{' '}
-                          {new Date(project.updatedAt).toLocaleDateString(undefined, {
+                          Created{' '}
+                          {new Date(project.createdAt).toLocaleDateString(undefined, {
                             year: 'numeric',
                             month: 'short',
                             day: 'numeric',
                           })}
                         </span>
-                      )}
+                        <span>• {project.workflowType.replace(/_/g, ' ')}</span>
+                        {project.updatedAt !== project.createdAt && (
+                          <span>
+                            • Modified{' '}
+                            {new Date(project.updatedAt).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          project.status === 'active'
+                            ? 'bg-green-100 text-green-700'
+                            : project.status === 'completed'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-gray-100 text-gray-700'
+                        }`}
+                      >
+                        {project.status}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <span
-                      className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        project.status === 'active'
-                          ? 'bg-green-100 text-green-700'
-                          : project.status === 'completed'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-gray-100 text-gray-700'
-                      }`}
-                    >
-                      {project.status}
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
+                </Link>
+              ))}
+            </div>
+            <Pagination
+              total={total}
+              limit={PAGE_SIZE}
+              offset={offset}
+              onPageChange={setOffset}
+            />
+          </>
         )}
       </div>
 

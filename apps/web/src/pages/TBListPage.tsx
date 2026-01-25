@@ -2,19 +2,24 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tbApi } from '../api';
 import { useOrgStore } from '../stores/org';
+import { Pagination } from '../components/Pagination';
+
+const PAGE_SIZE = 10;
 
 export function TBListPage() {
   const queryClient = useQueryClient();
   const { currentOrg } = useOrgStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [offset, setOffset] = useState(0);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['tbs', currentOrg?.id],
-    queryFn: () => tbApi.list(currentOrg!.id),
+    queryKey: ['tbs', currentOrg?.id, offset],
+    queryFn: () => tbApi.list(currentOrg!.id, { limit: PAGE_SIZE, offset }),
     enabled: !!currentOrg,
   });
 
   const tbs = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <div className="space-y-6">
@@ -36,11 +41,19 @@ export function TBListPage() {
             No term bases. Create one to manage your terminology.
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
-            {tbs.map((tb) => (
-              <TBRow key={tb.id} tb={tb} />
-            ))}
-          </div>
+          <>
+            <div className="divide-y divide-gray-200">
+              {tbs.map((tb) => (
+                <TBRow key={tb.id} tb={tb} />
+              ))}
+            </div>
+            <Pagination
+              total={total}
+              limit={PAGE_SIZE}
+              offset={offset}
+              onPageChange={setOffset}
+            />
+          </>
         )}
       </div>
 
@@ -64,7 +77,7 @@ function formatDate(date: string | Date | null | undefined): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; createdByName?: string } }) {
+function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; createdByName?: string | null } }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { data: tbDetail } = useQuery({
@@ -72,6 +85,14 @@ function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string;
     queryFn: () => tbApi.get(tb.id),
     enabled: isExpanded,
   });
+
+  const { data: termsData } = useQuery({
+    queryKey: ['tb', tb.id, 'terms'],
+    queryFn: () => tbApi.listTerms(tb.id, 50, 0),
+    enabled: isExpanded,
+  });
+
+  const terms = termsData?.items ?? [];
 
   return (
     <div className="px-6 py-4">
@@ -107,10 +128,48 @@ function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string;
 
       {isExpanded && tbDetail && (
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <div className="text-sm">
+          <div className="text-sm mb-4">
             <span className="text-gray-500">Terms:</span>
-            <span className="ml-2 text-gray-900">{tbDetail.termCount}</span>
+            <span className="ml-2 text-gray-900 font-medium">{tbDetail.termCount}</span>
           </div>
+
+          {terms.length > 0 && (
+            <div className="border border-gray-200 rounded overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                      Source Term
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                      Target Term
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                      Definition
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {terms.map((term) => (
+                    <tr key={term.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 text-gray-900 font-medium">{term.sourceTerm}</td>
+                      <td className="px-3 py-2 text-gray-700">{term.targetTerm}</td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{term.definition || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {tbDetail.termCount > 50 && (
+                <div className="px-3 py-2 bg-gray-50 text-xs text-gray-500 border-t">
+                  Showing 50 of {tbDetail.termCount} terms
+                </div>
+              )}
+            </div>
+          )}
+
+          {terms.length === 0 && tbDetail.termCount === 0 && (
+            <div className="text-sm text-gray-500 italic">No terms yet</div>
+          )}
         </div>
       )}
     </div>

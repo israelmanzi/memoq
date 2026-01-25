@@ -7,6 +7,10 @@ export interface CreateTMInput {
   targetLanguage: string;
 }
 
+export interface TMWithCreator extends TranslationMemory {
+  createdByName: string | null;
+}
+
 export interface TMWithStats extends TranslationMemory {
   unitCount: number;
   lastUpdated: string | null;
@@ -20,8 +24,19 @@ export interface AddUnitInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface PaginationParams {
+  limit?: number;
+  offset?: number;
+}
+
 export const tmApi = {
-  list: (orgId: string) => api.get<{ items: TranslationMemory[] }>(`/tm/org/${orgId}`),
+  list: (orgId: string, options?: PaginationParams) => {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+    const query = params.toString() ? `?${params}` : '';
+    return api.get<{ items: TMWithCreator[]; total: number }>(`/tm/org/${orgId}${query}`);
+  },
 
   get: (tmId: string) => api.get<TMWithStats>(`/tm/${tmId}`),
 

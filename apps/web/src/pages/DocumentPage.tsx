@@ -1,11 +1,39 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import { projectsApi, tbApi, type SegmentWithMatchInfo } from '../api';
+import { projectsApi, tbApi, tmApi, type SegmentWithMatchInfo } from '../api';
 import type { SegmentStatus, TermMatch } from '@memoq/shared';
 import { HighlightedText } from '../components/HighlightedText';
 
 type StatusFilter = 'all' | 'untranslated' | 'translated' | 'reviewed' | 'fuzzy';
+
+// Helper component to highlight selected text within context
+function HighlightedSelection({ text, selection }: { text: string; selection: string }) {
+  if (!text) return <span className="text-gray-400 italic">No text</span>;
+  if (!selection) return <span>{text}</span>;
+
+  // Find the selection in the text (case-insensitive)
+  const lowerText = text.toLowerCase();
+  const lowerSelection = selection.toLowerCase();
+  const index = lowerText.indexOf(lowerSelection);
+
+  if (index === -1) {
+    // Selection not found in text - just show the text
+    return <span>{text}</span>;
+  }
+
+  const before = text.slice(0, index);
+  const match = text.slice(index, index + selection.length);
+  const after = text.slice(index + selection.length);
+
+  return (
+    <span>
+      {before}
+      <mark className="bg-yellow-300 text-gray-900 px-0.5 rounded">{match}</mark>
+      {after}
+    </span>
+  );
+}
 
 export function DocumentPage() {
   const { documentId } = useParams({ from: '/protected/documents/$documentId' });
@@ -25,14 +53,29 @@ export function DocumentPage() {
     enabled: !!document?.projectId,
   });
 
-  const hasWritableTM = resourcesData?.items?.some(
+  // Get first writable TM for "Confirm + TM" feature
+  const writableTMId = resourcesData?.items?.find(
     (r) => r.resourceType === 'tm' && r.isWritable
-  ) ?? false;
+  )?.resourceId ?? null;
 
   // Get first writable TB for "Add to TB" feature
   const writableTBId = resourcesData?.items?.find(
     (r) => r.resourceType === 'tb' && r.isWritable
   )?.resourceId ?? null;
+
+  // Fetch TM details to get name
+  const { data: writableTM } = useQuery({
+    queryKey: ['tm', writableTMId],
+    queryFn: () => tmApi.get(writableTMId!),
+    enabled: !!writableTMId,
+  });
+
+  // Fetch TB details to get name
+  const { data: writableTB } = useQuery({
+    queryKey: ['tb', writableTBId],
+    queryFn: () => tbApi.get(writableTBId!),
+    enabled: !!writableTBId,
+  });
 
   const { data: segmentsData } = useQuery({
     queryKey: ['segments', documentId],
@@ -150,7 +193,7 @@ export function DocumentPage() {
           )}
         </div>
 
-        {/* Navigation */}
+        {/* Navigation + Actions */}
         <div className="flex items-center gap-2">
           <button
             onClick={goToNextUntranslated}
@@ -179,6 +222,14 @@ export function DocumentPage() {
           >
             ↓
           </button>
+          <div className="w-px h-4 bg-gray-300 mx-1" />
+          <Link
+            to="/projects/$projectId"
+            params={{ projectId: document.projectId }}
+            className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
+          >
+            Done Editing
+          </Link>
         </div>
       </div>
 
@@ -200,14 +251,17 @@ export function DocumentPage() {
                 segment={segment}
                 index={index}
                 isSelected={segment.id === selectedSegmentId}
+                isLastSegment={index === segments.length - 1}
                 onClick={() => setSelectedSegmentId(segment.id)}
+                onDeselect={() => setSelectedSegmentId(null)}
                 documentId={documentId}
                 projectId={document.projectId}
                 termMatches={segment.id === selectedSegmentId ? selectedSegment?.termMatches : undefined}
                 pendingTermInsert={segment.id === selectedSegmentId ? pendingTermInsert : null}
                 onTermInserted={() => setPendingTermInsert(null)}
-                hasWritableTM={hasWritableTM}
+                writableTMName={writableTM?.name ?? null}
                 writableTBId={writableTBId}
+                writableTBName={writableTB?.name ?? null}
                 onConfirmComplete={goToNextSegment}
               />
             ))}
@@ -305,27 +359,33 @@ function SegmentRow({
   segment,
   index,
   isSelected,
+  isLastSegment,
   onClick,
+  onDeselect,
   documentId,
   projectId,
   termMatches,
   pendingTermInsert,
   onTermInserted,
-  hasWritableTM,
+  writableTMName,
   writableTBId,
+  writableTBName,
   onConfirmComplete,
 }: {
   segment: SegmentWithMatchInfo;
   index: number;
   isSelected: boolean;
+  isLastSegment: boolean;
   onClick: () => void;
+  onDeselect: () => void;
   documentId: string;
   projectId: string;
   termMatches?: TermMatch[];
   pendingTermInsert?: string | null;
   onTermInserted?: () => void;
-  hasWritableTM: boolean;
+  writableTMName: string | null;
   writableTBId: string | null;
+  writableTBName: string | null;
   onConfirmComplete?: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -361,35 +421,96 @@ function SegmentRow({
     }
   }, [pendingTermInsert]);
 
+  const [lastPropagation, setLastPropagation] = useState<{ count: number } | null>(null);
+
   const updateMutation = useMutation({
-    mutationFn: (data: { targetText: string; status?: SegmentStatus; confirm?: boolean }) =>
+    mutationFn: (data: { targetText: string; status?: SegmentStatus; confirm?: boolean; propagate?: boolean }) =>
       projectsApi.updateSegment(documentId, segment.id, data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['segments', documentId] });
       queryClient.invalidateQueries({ queryKey: ['document', documentId] });
       // Invalidate parent queries for accurate progress on navigation
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
       queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
       setIsEditing(false);
+      // Show propagation result
+      if (result.propagation && result.propagation.propagatedCount > 0) {
+        setLastPropagation({ count: result.propagation.propagatedCount });
+        // Auto-hide after 3 seconds
+        setTimeout(() => setLastPropagation(null), 3000);
+      }
     },
   });
 
-  // Track selected text for "Add to TB" feature
-  const [selectedSourceText, setSelectedSourceText] = useState('');
-  const [selectedTargetText, setSelectedTargetText] = useState('');
+  // Term selection state for live highlighting in table view
+  const [termSelection, setTermSelection] = useState({ source: '', target: '' });
+  const sourceRef = useRef<HTMLDivElement>(null);
+
+  // Track source text selection
+  const handleSourceMouseUp = () => {
+    const selection = window.getSelection();
+    const selectedText = selection?.toString().trim() || '';
+    if (selectedText && sourceRef.current?.contains(selection?.anchorNode ?? null)) {
+      setTermSelection((prev) => ({ ...prev, source: selectedText }));
+    }
+  };
+
+  // Track target text selection
+  const handleTargetSelect = () => {
+    if (textareaRef.current) {
+      const { selectionStart, selectionEnd } = textareaRef.current;
+      const selectedText = targetText.slice(selectionStart, selectionEnd).trim();
+      if (selectedText) {
+        setTermSelection((prev) => ({ ...prev, target: selectedText }));
+      }
+    }
+  };
+
+  // Add Term Modal state
+  const [showAddTermModal, setShowAddTermModal] = useState(false);
+  const [termForm, setTermForm] = useState({
+    source: '',
+    target: '',
+    definition: '',
+    sourceContext: '', // Full source text for highlighting
+    targetContext: '', // Full target text for highlighting
+  });
+  const [termAddSuccess, setTermAddSuccess] = useState(false);
 
   // Mutation for adding term to TB
   const addToTBMutation = useMutation({
-    mutationFn: ({ sourceTerm, targetTerm }: { sourceTerm: string; targetTerm: string }) =>
-      tbApi.addTerm(writableTBId!, { sourceTerm, targetTerm }),
+    mutationFn: ({ sourceTerm, targetTerm, definition }: { sourceTerm: string; targetTerm: string; definition?: string }) =>
+      tbApi.addTerm(writableTBId!, { sourceTerm, targetTerm, definition }),
     onSuccess: () => {
       // Invalidate segment query to refresh term matches
       queryClient.invalidateQueries({ queryKey: ['segment', documentId] });
-      // Clear selections after adding
-      setSelectedSourceText('');
-      setSelectedTargetText('');
+      queryClient.invalidateQueries({ queryKey: ['tb'] });
+      // Show success and close modal
+      setTermAddSuccess(true);
+      setTimeout(() => {
+        setShowAddTermModal(false);
+        setTermForm({ source: '', target: '', definition: '', sourceContext: '', targetContext: '' });
+        setTermAddSuccess(false);
+        clearTermSelection(); // Clear highlights after successful add
+      }, 1000);
     },
   });
+
+  const openAddTermModal = () => {
+    // Use tracked selections (which persist even after clicking elsewhere)
+    setTermForm({
+      source: termSelection.source,
+      target: termSelection.target,
+      definition: '',
+      sourceContext: segment.sourceText,
+      targetContext: targetText,
+    });
+    setShowAddTermModal(true);
+  };
+
+  const clearTermSelection = () => {
+    setTermSelection({ source: '', target: '' });
+  };
 
   const handleSave = () => {
     updateMutation.mutate({
@@ -400,15 +521,22 @@ function SegmentRow({
 
   const handleConfirm = () => {
     // Confirm sets status to reviewed_1 which auto-saves to TM
+    // Also propagate to identical untranslated segments
     updateMutation.mutate(
       {
         targetText,
         status: 'reviewed_1',
+        propagate: true, // Auto-propagate to identical segments
       },
       {
         onSuccess: () => {
-          // Auto-advance to next segment after confirm
-          onConfirmComplete?.();
+          if (isLastSegment) {
+            // Last segment - just close/deselect
+            onDeselect();
+          } else {
+            // Auto-advance to next segment
+            onConfirmComplete?.();
+          }
         },
       }
     );
@@ -422,30 +550,12 @@ function SegmentRow({
   };
 
   const handleAddToTB = () => {
-    if (!writableTBId || !selectedSourceText.trim() || !selectedTargetText.trim()) return;
+    if (!writableTBId || !termForm.source.trim() || !termForm.target.trim()) return;
     addToTBMutation.mutate({
-      sourceTerm: selectedSourceText.trim(),
-      targetTerm: selectedTargetText.trim(),
+      sourceTerm: termForm.source.trim(),
+      targetTerm: termForm.target.trim(),
+      definition: termForm.definition.trim() || undefined,
     });
-  };
-
-  // Capture text selection from source
-  const handleSourceSelection = () => {
-    const selection = window.getSelection();
-    if (selection && selection.toString().trim()) {
-      setSelectedSourceText(selection.toString().trim());
-    }
-  };
-
-  // Capture text selection from target textarea
-  const handleTargetSelection = () => {
-    if (textareaRef.current) {
-      const start = textareaRef.current.selectionStart;
-      const end = textareaRef.current.selectionEnd;
-      if (start !== end) {
-        setSelectedTargetText(targetText.slice(start, end).trim());
-      }
-    }
   };
 
   const statusColors: Record<string, string> = {
@@ -499,33 +609,69 @@ function SegmentRow({
 
       {/* Source panel */}
       <div
+        ref={sourceRef}
         className="flex-1 p-3 border-r border-gray-100 bg-gray-50 select-text"
-        onMouseUp={handleSourceSelection}
+        onMouseUp={handleSourceMouseUp}
       >
         <div className="text-sm text-gray-900 leading-relaxed">
-          <HighlightedText
-            text={segment.sourceText}
-            termMatches={termMatches ?? []}
-            onTermClick={(term) => insertTerm(term.targetTerm)}
-          />
+          {termSelection.source ? (
+            <HighlightedSelection text={segment.sourceText} selection={termSelection.source} />
+          ) : (
+            <HighlightedText
+              text={segment.sourceText}
+              termMatches={termMatches ?? []}
+              onTermClick={(term) => insertTerm(term.targetTerm)}
+            />
+          )}
         </div>
+        {termSelection.source && (
+          <div className="mt-1 flex items-center gap-1">
+            <span className="text-xs text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">
+              Source: "{termSelection.source}"
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setTermSelection((prev) => ({ ...prev, source: '' })); }}
+              className="text-xs text-gray-400 hover:text-gray-600"
+              title="Clear source selection"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Target panel */}
       <div className="flex-1 p-3">
         {isSelected ? (
           <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+            {/* Show target selection indicator above textarea */}
+            {termSelection.target && (
+              <div className="flex items-center gap-1 mb-1">
+                <span className="text-xs text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">
+                  Target: "{termSelection.target}"
+                </span>
+                <button
+                  onClick={() => setTermSelection((prev) => ({ ...prev, target: '' }))}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                  title="Clear target selection"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={targetText}
               onChange={(e) => setTargetText(e.target.value)}
-              onSelect={handleTargetSelection}
               onFocus={() => setIsEditing(true)}
-              className="w-full px-2 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              onSelect={handleTargetSelect}
+              className={`w-full px-2 py-2 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none ${
+                termSelection.target ? 'border-orange-300 bg-orange-50/30' : 'border-gray-300'
+              }`}
               rows={Math.max(2, Math.ceil(segment.sourceText.length / 60))}
               placeholder="Enter translation..."
             />
-            <div className="flex gap-1.5 flex-wrap">
+            <div className="flex gap-1.5 flex-wrap items-center">
               <button
                 onClick={handleCopySource}
                 className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
@@ -537,43 +683,168 @@ function SegmentRow({
                 onClick={handleSave}
                 disabled={updateMutation.isPending}
                 className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                title="Save as translated"
+                title="Save as translated (draft)"
               >
                 Save
               </button>
               <button
                 onClick={handleConfirm}
                 disabled={updateMutation.isPending}
-                className={`px-2 py-1 text-xs rounded disabled:opacity-50 ${
-                  hasWritableTM
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : 'bg-gray-500 text-white hover:bg-gray-600'
-                }`}
-                title={hasWritableTM ? 'Confirm and save to TM' : 'Confirm (no TM)'}
+                className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                title={writableTMName ? `Confirm, save to "${writableTMName}", and propagate` : 'Confirm and propagate (no TM linked)'}
               >
-                {hasWritableTM ? 'Confirm+TM' : 'Confirm'}
+                {writableTMName ? `Confirm → ${writableTMName}` : 'Confirm'}
               </button>
-              {writableTBId && selectedSourceText && selectedTargetText && (
+              {lastPropagation && (
+                <span className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded animate-pulse">
+                  +{lastPropagation.count} propagated
+                </span>
+              )}
+              {writableTBId && (
                 <button
-                  onClick={handleAddToTB}
-                  disabled={addToTBMutation.isPending}
-                  className="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50"
-                  title={`Add "${selectedSourceText}" → "${selectedTargetText}" to TB`}
+                  onClick={openAddTermModal}
+                  className="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600"
+                  title={writableTBName ? `Add term to "${writableTBName}"` : 'Add a term pair to Term Base'}
                 >
-                  +TB
+                  + Term{writableTBName ? ` → ${writableTBName}` : ''}
                 </button>
               )}
               <button
                 onClick={() => {
                   setTargetText(segment.targetText ?? '');
                   setIsEditing(false);
+                  onDeselect();
                 }}
                 className="px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded"
-                title="Cancel changes"
+                title="Cancel changes and close"
               >
                 Cancel
               </button>
             </div>
+
+            {/* Add Term Modal */}
+            {showAddTermModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setShowAddTermModal(false); clearTermSelection(); }}>
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Add to Term Base</h3>
+                      {writableTBName && (
+                        <p className="text-sm text-orange-600">→ {writableTBName}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setShowAddTermModal(false); clearTermSelection(); }}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {termAddSuccess ? (
+                    <div className="py-8 text-center">
+                      <div className="text-green-500 text-4xl mb-2">✓</div>
+                      <p className="text-green-700 font-medium">Term added successfully!</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Context with highlighted selections */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-2 bg-gray-50 rounded border border-gray-200">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Source text:</p>
+                          <p className="text-sm text-gray-700 leading-relaxed">
+                            <HighlightedSelection
+                              text={termForm.sourceContext}
+                              selection={termForm.source}
+                            />
+                          </p>
+                        </div>
+                        <div className="p-2 bg-gray-50 rounded border border-gray-200">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Target text:</p>
+                          <p className="text-sm text-gray-700 leading-relaxed">
+                            <HighlightedSelection
+                              text={termForm.targetContext}
+                              selection={termForm.target}
+                            />
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Source Term <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={termForm.source}
+                          onChange={(e) => setTermForm({ ...termForm, source: e.target.value })}
+                          placeholder="Enter source term"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                          autoFocus
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Target Term <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={termForm.target}
+                          onChange={(e) => setTermForm({ ...termForm, target: e.target.value })}
+                          placeholder="Enter target term (translation)"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Definition <span className="text-gray-400">(optional)</span>
+                        </label>
+                        <textarea
+                          value={termForm.definition}
+                          onChange={(e) => setTermForm({ ...termForm, definition: e.target.value })}
+                          placeholder="Add context, usage notes, or examples..."
+                          rows={2}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none"
+                        />
+                      </div>
+
+                      {/* Preview */}
+                      {termForm.source && termForm.target && (
+                        <div className="p-3 bg-orange-50 border border-orange-200 rounded-md">
+                          <p className="text-xs font-medium text-orange-700 mb-2">Preview:</p>
+                          <p className="text-sm">
+                            <span className="font-medium text-gray-900">{termForm.source}</span>
+                            <span className="text-gray-400 mx-2">→</span>
+                            <span className="font-medium text-gray-900">{termForm.target}</span>
+                          </p>
+                          {termForm.definition && (
+                            <p className="text-xs text-gray-600 mt-1 italic">{termForm.definition}</p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          onClick={() => { setShowAddTermModal(false); clearTermSelection(); }}
+                          className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleAddToTB}
+                          disabled={!termForm.source.trim() || !termForm.target.trim() || addToTBMutation.isPending}
+                          className="px-4 py-2 text-sm bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {addToTBMutation.isPending ? 'Adding...' : 'Add Term'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className={`text-sm leading-relaxed ${segment.targetText ? 'text-gray-900' : 'text-gray-400 italic'}`}>

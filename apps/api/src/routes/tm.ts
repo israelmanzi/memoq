@@ -95,19 +95,21 @@ export async function tmRoutes(app: FastifyInstance) {
   );
 
   // List TMs for organization
-  app.get<{ Params: { orgId: string } }>(
+  app.get<{ Params: { orgId: string }; Querystring: { limit?: string; offset?: string } }>(
     '/org/:orgId',
     async (request, reply) => {
       const { orgId } = request.params;
       const { userId } = request.user;
+      const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
+      const offset = parseInt(request.query.offset || '0', 10);
 
       const membership = await getMembership(orgId, userId);
       if (!membership) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
-      const tms = await listOrgTMs(orgId);
-      return reply.send({ items: tms });
+      const result = await listOrgTMs(orgId, { limit, offset });
+      return reply.send(result);
     }
   );
 
@@ -361,7 +363,7 @@ export async function tmRoutes(app: FastifyInstance) {
       }
 
       // Get all TMs for this org
-      const tms = await listOrgTMs(orgId);
+      const { items: tms } = await listOrgTMs(orgId, { limit: 1000 });
       const tmIds = tms.map((tm) => tm.id);
 
       const matches = await findMatches({

@@ -2,19 +2,24 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tmApi } from '../api';
 import { useOrgStore } from '../stores/org';
+import { Pagination } from '../components/Pagination';
+
+const PAGE_SIZE = 10;
 
 export function TMListPage() {
   const queryClient = useQueryClient();
   const { currentOrg } = useOrgStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [offset, setOffset] = useState(0);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['tms', currentOrg?.id],
-    queryFn: () => tmApi.list(currentOrg!.id),
+    queryKey: ['tms', currentOrg?.id, offset],
+    queryFn: () => tmApi.list(currentOrg!.id, { limit: PAGE_SIZE, offset }),
     enabled: !!currentOrg,
   });
 
   const tms = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <div className="space-y-6">
@@ -36,11 +41,19 @@ export function TMListPage() {
             No translation memories. Create one to start building your TM.
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
-            {tms.map((tm) => (
-              <TMRow key={tm.id} tm={tm} />
-            ))}
-          </div>
+          <>
+            <div className="divide-y divide-gray-200">
+              {tms.map((tm) => (
+                <TMRow key={tm.id} tm={tm} />
+              ))}
+            </div>
+            <Pagination
+              total={total}
+              limit={PAGE_SIZE}
+              offset={offset}
+              onPageChange={setOffset}
+            />
+          </>
         )}
       </div>
 
@@ -64,7 +77,7 @@ function formatDate(date: string | Date | null | undefined): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function TMRow({ tm }: { tm: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; updatedAt?: Date | string; createdByName?: string } }) {
+function TMRow({ tm }: { tm: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; updatedAt?: Date | string; createdByName?: string | null } }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { data: tmDetail } = useQuery({
@@ -72,6 +85,14 @@ function TMRow({ tm }: { tm: { id: string; name: string; sourceLanguage: string;
     queryFn: () => tmApi.get(tm.id),
     enabled: isExpanded,
   });
+
+  const { data: unitsData } = useQuery({
+    queryKey: ['tm', tm.id, 'units'],
+    queryFn: () => tmApi.listUnits(tm.id, 50, 0),
+    enabled: isExpanded,
+  });
+
+  const units = unitsData?.items ?? [];
 
   return (
     <div className="px-6 py-4">
@@ -110,20 +131,52 @@ function TMRow({ tm }: { tm: { id: string; name: string; sourceLanguage: string;
 
       {isExpanded && tmDetail && (
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="flex items-center gap-6 text-sm mb-4">
             <div>
               <span className="text-gray-500">Units:</span>
-              <span className="ml-2 text-gray-900">{tmDetail.unitCount}</span>
+              <span className="ml-2 text-gray-900 font-medium">{tmDetail.unitCount}</span>
             </div>
             <div>
               <span className="text-gray-500">Last entry:</span>
               <span className="ml-2 text-gray-900">
-                {tmDetail.lastUpdated
-                  ? formatDate(tmDetail.lastUpdated)
-                  : 'No entries'}
+                {tmDetail.lastUpdated ? formatDate(tmDetail.lastUpdated) : 'No entries'}
               </span>
             </div>
           </div>
+
+          {units.length > 0 && (
+            <div className="border border-gray-200 rounded overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-1/2">
+                      Source
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-1/2">
+                      Target
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {units.map((unit) => (
+                    <tr key={unit.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 text-gray-900 break-words">{unit.sourceText}</td>
+                      <td className="px-3 py-2 text-gray-700 break-words">{unit.targetText}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {tmDetail.unitCount > 50 && (
+                <div className="px-3 py-2 bg-gray-50 text-xs text-gray-500 border-t">
+                  Showing 50 of {tmDetail.unitCount} entries
+                </div>
+              )}
+            </div>
+          )}
+
+          {units.length === 0 && tmDetail.unitCount === 0 && (
+            <div className="text-sm text-gray-500 italic">No entries yet</div>
+          )}
         </div>
       )}
     </div>

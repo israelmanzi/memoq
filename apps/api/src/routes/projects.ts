@@ -86,20 +86,22 @@ export async function projectRoutes(app: FastifyInstance) {
   );
 
   // List org projects
-  app.get<{ Params: { orgId: string }; Querystring: { status?: string } }>(
+  app.get<{ Params: { orgId: string }; Querystring: { status?: string; limit?: string; offset?: string } }>(
     '/org/:orgId',
     async (request, reply) => {
       const { orgId } = request.params;
       const { userId } = request.user;
       const status = request.query.status as any;
+      const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
+      const offset = parseInt(request.query.offset || '0', 10);
 
       const membership = await getMembership(orgId, userId);
       if (!membership) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
-      const projectList = await listOrgProjects(orgId, status);
-      return reply.send({ items: projectList });
+      const result = await listOrgProjects(orgId, { status, limit, offset });
+      return reply.send(result);
     }
   );
 

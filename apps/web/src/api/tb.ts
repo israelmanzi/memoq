@@ -7,6 +7,10 @@ export interface CreateTBInput {
   targetLanguage: string;
 }
 
+export interface TBWithCreator extends TermBase {
+  createdByName: string | null;
+}
+
 export interface TBWithStats extends TermBase {
   termCount: number;
 }
@@ -17,8 +21,19 @@ export interface AddTermInput {
   definition?: string;
 }
 
+export interface PaginationParams {
+  limit?: number;
+  offset?: number;
+}
+
 export const tbApi = {
-  list: (orgId: string) => api.get<{ items: TermBase[] }>(`/tb/org/${orgId}`),
+  list: (orgId: string, options?: PaginationParams) => {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+    const query = params.toString() ? `?${params}` : '';
+    return api.get<{ items: TBWithCreator[]; total: number }>(`/tb/org/${orgId}${query}`);
+  },
 
   get: (tbId: string) => api.get<TBWithStats>(`/tb/${tbId}`),
 

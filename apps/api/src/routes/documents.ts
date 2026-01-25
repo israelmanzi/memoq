@@ -19,6 +19,7 @@ import {
   refreshDocumentWorkflowStatus,
   canAdvanceToWorkflowStatus,
   preTranslateDocument,
+  propagateTranslation,
 } from '../services/project.service.js';
 import { getMembership } from '../services/org.service.js';
 import { findMatches, addTranslationUnit } from '../services/tm.service.js';
@@ -41,6 +42,7 @@ const updateSegmentSchema = z.object({
   targetText: z.string(),
   status: z.enum(SEGMENT_STATUSES).optional(),
   confirm: z.boolean().optional(), // If true, also save to TM
+  propagate: z.boolean().optional(), // If true, propagate to identical untranslated segments
 });
 
 const bulkUpdateSegmentsSchema = z.object({
@@ -238,11 +240,13 @@ export async function documentRoutes(app: FastifyInstance) {
   });
 
   // List project documents
-  app.get<{ Params: { projectId: string } }>(
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: string; offset?: string } }>(
     '/project/:projectId',
     async (request, reply) => {
       const { projectId } = request.params;
       const { userId } = request.user;
+      const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
+      const offset = parseInt(request.query.offset || '0', 10);
 
       const project = await findProjectById(projectId);
       if (!project) {
@@ -254,17 +258,17 @@ export async function documentRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
-      const docs = await listProjectDocuments(projectId);
+      const result = await listProjectDocuments(projectId, { limit, offset });
 
       // Add stats to each document
       const docsWithStats = await Promise.all(
-        docs.map(async (doc) => {
+        result.items.map(async (doc) => {
           const stats = await getDocumentStats(doc.id);
           return { ...doc, ...stats };
         })
       );
 
-      return reply.send({ items: docsWithStats });
+      return reply.send({ items: docsWithStats, total: result.total });
     }
   );
 
@@ -588,10 +592,27 @@ export async function documentRoutes(app: FastifyInstance) {
         }
       }
 
+      // Propagate translation to identical untranslated segments if requested
+      let propagationResult = null;
+      if (parsed.data.propagate && parsed.data.targetText.trim()) {
+        propagationResult = await propagateTranslation({
+          documentId,
+          sourceText: segment.sourceText,
+          targetText: parsed.data.targetText,
+          excludeSegmentId: segmentId,
+          status: finalStatus,
+          lastModifiedBy: userId,
+        });
+      }
+
       // Auto-refresh document workflow status
       const newWorkflowStatus = await refreshDocumentWorkflowStatus(documentId);
 
-      return reply.send({ ...updated, documentWorkflowStatus: newWorkflowStatus });
+      return reply.send({
+        ...updated,
+        documentWorkflowStatus: newWorkflowStatus,
+        propagation: propagationResult,
+      });
     }
   );
 
