@@ -5,10 +5,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-oxy}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oxy_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-oxy}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5066}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,16 +17,14 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      default:
-        aliases:
-          - postgres
+      - oxy-network
 
   redis:
     image: redis:7-alpine
     container_name: oxy-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT:-5065}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -35,15 +33,59 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      default:
-        aliases:
-          - redis
+      - oxy-network
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: oxy-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-5064}:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-oxy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oxy}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      APP_URL: ${APP_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - oxy-network
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    container_name: oxy-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-5063}:80"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - oxy-network
 
 volumes:
   postgres_data:
   redis_data:
 
 networks:
-  default:
+  oxy-network:
     driver: bridge
-    name: oxy-network
