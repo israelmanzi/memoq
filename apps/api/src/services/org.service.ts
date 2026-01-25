@@ -1,4 +1,4 @@
-import { eq, and, count } from 'drizzle-orm';
+import { eq, and, count, desc } from 'drizzle-orm';
 import { db, organizations, orgMemberships, users } from '../db/index.js';
 import type { Organization, OrgMembership, OrgRole } from '@memoq/shared';
 
@@ -92,7 +92,7 @@ export async function listUserOrgs(
     .from(organizations)
     .innerJoin(orgMemberships, eq(orgMemberships.orgId, organizations.id))
     .where(eq(orgMemberships.userId, userId))
-    .orderBy(organizations.name);
+    .orderBy(desc(organizations.createdAt));
 
   return orgs as (Organization & { role: OrgRole })[];
 }

@@ -53,3 +53,7 @@ storage/
 
 # Turborepo
 .turbo/
+
+TESTING.md
+TODO.md
+NOTES.md

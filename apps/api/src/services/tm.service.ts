@@ -1,8 +1,12 @@
-import { eq, and, sql } from 'drizzle-orm';
-import { db, translationMemories, translationUnits } from '../db/index.js';
+import { eq, and, sql, inArray, desc } from 'drizzle-orm';
+import { db, translationMemories, translationUnits, users } from '../db/index.js';
 import { distance } from 'fastest-levenshtein';
 import { createHash } from 'crypto';
 import type { TranslationMemory, TranslationUnit, TMMatch } from '@memoq/shared';
+
+export interface TranslationMemoryWithCreator extends TranslationMemory {
+  createdByName: string | null;
+}
 
 // ============ Translation Memory CRUD ============
 
@@ -42,14 +46,25 @@ export async function findTMById(id: string): Promise<TranslationMemory | null> 
   return tm ?? null;
 }
 
-export async function listOrgTMs(orgId: string): Promise<TranslationMemory[]> {
+export async function listOrgTMs(orgId: string): Promise<TranslationMemoryWithCreator[]> {
   const tms = await db
-    .select()
+    .select({
+      id: translationMemories.id,
+      orgId: translationMemories.orgId,
+      name: translationMemories.name,
+      sourceLanguage: translationMemories.sourceLanguage,
+      targetLanguage: translationMemories.targetLanguage,
+      createdBy: translationMemories.createdBy,
+      createdAt: translationMemories.createdAt,
+      updatedAt: translationMemories.updatedAt,
+      createdByName: users.name,
+    })
     .from(translationMemories)
+    .leftJoin(users, eq(translationMemories.createdBy, users.id))
     .where(eq(translationMemories.orgId, orgId))
-    .orderBy(translationMemories.name);
+    .orderBy(desc(translationMemories.createdAt));
 
-  return tms as TranslationMemory[];
+  return tms as TranslationMemoryWithCreator[];
 }
 
 export async function deleteTM(id: string): Promise<void> {
@@ -163,7 +178,7 @@ export async function listTMUnits(
     .select()
     .from(translationUnits)
     .where(eq(translationUnits.tmId, tmId))
-    .orderBy(translationUnits.createdAt)
+    .orderBy(desc(translationUnits.createdAt))
     .limit(limit)
     .offset(offset);
 
@@ -207,7 +222,7 @@ export async function findMatches(options: FuzzyMatchOptions): Promise<TMMatch[]
   const units = await db
     .select()
     .from(translationUnits)
-    .where(sql`${translationUnits.tmId} = ANY(${tmIds})`);
+    .where(inArray(translationUnits.tmId, tmIds));
 
   const normalizedSource = sourceText.toLowerCase().trim();
   const sourceHash = hashSource(sourceText);

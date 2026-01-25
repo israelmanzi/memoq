@@ -63,10 +63,37 @@ export function ProjectsPage() {
                 className="block px-6 py-4 hover:bg-gray-50"
               >
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900">{project.name}</div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      {project.sourceLanguage} → {project.targetLanguage} • {project.workflowType}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <span className="font-medium text-gray-900">{project.name}</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                        {project.sourceLanguage}
+                      </span>
+                      <span className="text-gray-400">→</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        {project.targetLanguage}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500 flex items-center gap-4">
+                      <span>
+                        Created{' '}
+                        {new Date(project.createdAt).toLocaleDateString(undefined, {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </span>
+                      <span>• {project.workflowType.replace(/_/g, ' ')}</span>
+                      {project.updatedAt !== project.createdAt && (
+                        <span>
+                          • Modified{' '}
+                          {new Date(project.updatedAt).toLocaleDateString(undefined, {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-4">

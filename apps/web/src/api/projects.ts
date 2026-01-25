@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { Project, Document, Segment, WorkflowType, ProjectStatus, WorkflowStatus, SegmentStatus, ProjectRole } from '@memoq/shared';
+import type { Project, Document, Segment, WorkflowType, ProjectStatus, WorkflowStatus, SegmentStatus, ProjectRole, TermMatch } from '@memoq/shared';
 
 export interface CreateProjectInput {
   name: string;
@@ -30,6 +30,11 @@ export interface CreateDocumentInput {
   segments: Array<{ sourceText: string; targetText?: string }>;
 }
 
+export interface UploadDocumentResult extends DocumentWithStats {
+  detectedSourceLanguage?: string;
+  detectedTargetLanguage?: string;
+}
+
 export interface SegmentWithMatches extends Segment {
   matches: Array<{
     id: string;
@@ -38,6 +43,12 @@ export interface SegmentWithMatches extends Segment {
     matchPercent: number;
     isContextMatch: boolean;
   }>;
+  termMatches: TermMatch[];
+}
+
+export interface SegmentWithMatchInfo extends Segment {
+  bestMatchPercent: number | null;
+  hasContextMatch: boolean;
 }
 
 export const projectsApi = {
@@ -90,13 +101,43 @@ export const projectsApi = {
   createDocument: (projectId: string, data: CreateDocumentInput) =>
     api.post<DocumentWithStats>(`/documents/project/${projectId}`, data),
 
+  uploadDocument: async (projectId: string, file: File): Promise<UploadDocumentResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/v1/documents/project/${projectId}/upload`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const error = new Error(data.error || 'Upload failed') as any;
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
+    return response.json();
+  },
+
+  getSupportedTypes: () =>
+    api.get<{ extensions: string[]; mimeTypes: string[] }>('/documents/supported-types'),
+
   updateDocumentStatus: (documentId: string, status: WorkflowStatus) =>
     api.patch<Document>(`/documents/${documentId}/status`, { status }),
 
   deleteDocument: (documentId: string) => api.delete(`/documents/${documentId}`),
 
   // Segments
-  listSegments: (documentId: string) => api.get<{ items: Segment[] }>(`/documents/${documentId}/segments`),
+  listSegments: (documentId: string, includeMatches = false) =>
+    api.get<{ items: SegmentWithMatchInfo[] }>(
+      `/documents/${documentId}/segments${includeMatches ? '?includeMatches=true' : ''}`
+    ),
 
   getSegment: (documentId: string, segmentId: string) =>
     api.get<SegmentWithMatches>(`/documents/${documentId}/segments/${segmentId}`),

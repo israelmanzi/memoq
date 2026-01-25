@@ -58,7 +58,13 @@ export function TMListPage() {
   );
 }
 
-function TMRow({ tm }: { tm: { id: string; name: string; sourceLanguage: string; targetLanguage: string } }) {
+function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return '—';
+  const d = new Date(date);
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function TMRow({ tm }: { tm: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; updatedAt?: Date | string; createdByName?: string } }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { data: tmDetail } = useQuery({
@@ -73,10 +79,23 @@ function TMRow({ tm }: { tm: { id: string; name: string; sourceLanguage: string;
         className="flex items-center justify-between cursor-pointer"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <div>
-          <div className="font-medium text-gray-900">{tm.name}</div>
-          <div className="text-sm text-gray-500">
-            {tm.sourceLanguage} → {tm.targetLanguage}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3">
+            <span className="font-medium text-gray-900">{tm.name}</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+              {tm.sourceLanguage}
+            </span>
+            <span className="text-gray-400">→</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+              {tm.targetLanguage}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-gray-500 flex items-center gap-4">
+            <span>Created {formatDate(tm.createdAt)}</span>
+            {tm.createdByName && <span>by {tm.createdByName}</span>}
+            {tm.updatedAt && tm.updatedAt !== tm.createdAt && (
+              <span>• Modified {formatDate(tm.updatedAt)}</span>
+            )}
           </div>
         </div>
         <svg
@@ -97,11 +116,11 @@ function TMRow({ tm }: { tm: { id: string; name: string; sourceLanguage: string;
               <span className="ml-2 text-gray-900">{tmDetail.unitCount}</span>
             </div>
             <div>
-              <span className="text-gray-500">Last updated:</span>
+              <span className="text-gray-500">Last entry:</span>
               <span className="ml-2 text-gray-900">
                 {tmDetail.lastUpdated
-                  ? new Date(tmDetail.lastUpdated).toLocaleDateString()
-                  : 'Never'}
+                  ? formatDate(tmDetail.lastUpdated)
+                  : 'No entries'}
               </span>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { db, termBases, terms } from '../db/index.js';
 import type { TermBase, Term, TermMatch } from '@memoq/shared';
 
@@ -45,7 +45,7 @@ export async function listOrgTBs(orgId: string): Promise<TermBase[]> {
     .select()
     .from(termBases)
     .where(eq(termBases.orgId, orgId))
-    .orderBy(termBases.name);
+    .orderBy(desc(termBases.createdAt));
 
   return tbs as TermBase[];
 }
@@ -199,7 +199,7 @@ export async function findTermsInText(options: FindTermsOptions): Promise<TermMa
   const allTerms = await db
     .select()
     .from(terms)
-    .where(sql`${terms.tbId} = ANY(${tbIds})`);
+    .where(inArray(terms.tbId, tbIds));
 
   const matches: TermMatch[] = [];
   const textLower = text.toLowerCase();
