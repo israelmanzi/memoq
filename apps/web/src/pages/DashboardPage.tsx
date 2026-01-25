@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { projectsApi, tmApi, tbApi } from '../api';
 import { useOrgStore } from '../stores/org';
+import { formatWorkflowType } from '../utils/formatters';
 
 export function DashboardPage() {
   const { currentOrg } = useOrgStore();
@@ -89,7 +90,7 @@ export function DashboardPage() {
                     {project.sourceLanguage} → {project.targetLanguage}
                   </div>
                 </div>
-                <div className="text-sm text-gray-500">{project.workflowType}</div>
+                <div className="text-sm text-gray-500">{formatWorkflowType(project.workflowType)}</div>
               </div>
             </Link>
           ))}

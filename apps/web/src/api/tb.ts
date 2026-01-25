@@ -15,6 +15,11 @@ export interface TBWithStats extends TermBase {
   termCount: number;
 }
 
+export interface TBDeleteInfo {
+  termCount: number;
+  linkedProjects: Array<{ id: string; name: string }>;
+}
+
 export interface AddTermInput {
   sourceTerm: string;
   targetTerm: string;
@@ -42,6 +47,8 @@ export const tbApi = {
   update: (tbId: string, name: string) => api.patch<TermBase>(`/tb/${tbId}`, { name }),
 
   delete: (tbId: string) => api.delete(`/tb/${tbId}`),
+
+  getDeleteInfo: (tbId: string) => api.get<TBDeleteInfo>(`/tb/${tbId}/delete-info`),
 
   // Terms
   listTerms: (tbId: string, limit = 100, offset = 0, search?: string) => {

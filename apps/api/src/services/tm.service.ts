@@ -1,5 +1,5 @@
-import { eq, and, sql, inArray, desc } from 'drizzle-orm';
-import { db, translationMemories, translationUnits, users } from '../db/index.js';
+import { eq, and, sql, inArray, desc, isNull } from 'drizzle-orm';
+import { db, translationMemories, translationUnits, users, projectResources, projects } from '../db/index.js';
 import { distance } from 'fastest-levenshtein';
 import { createHash } from 'crypto';
 import type { TranslationMemory, TranslationUnit, TMMatch } from '@memoq/shared';
@@ -37,11 +37,15 @@ export async function createTM(input: CreateTMInput): Promise<TranslationMemory>
   return tm as TranslationMemory;
 }
 
-export async function findTMById(id: string): Promise<TranslationMemory | null> {
+export async function findTMById(id: string, includeDeleted = false): Promise<TranslationMemory | null> {
+  const conditions = includeDeleted
+    ? eq(translationMemories.id, id)
+    : and(eq(translationMemories.id, id), isNull(translationMemories.deletedAt));
+
   const [tm] = await db
     .select()
     .from(translationMemories)
-    .where(eq(translationMemories.id, id));
+    .where(conditions);
 
   return tm ?? null;
 }
@@ -51,6 +55,11 @@ export async function listOrgTMs(
   options: { limit?: number; offset?: number } = {}
 ): Promise<{ items: TranslationMemoryWithCreator[]; total: number }> {
   const { limit = 100, offset = 0 } = options;
+
+  const conditions = and(
+    eq(translationMemories.orgId, orgId),
+    isNull(translationMemories.deletedAt)
+  );
 
   const tms = await db
     .select({
@@ -66,7 +75,7 @@ export async function listOrgTMs(
     })
     .from(translationMemories)
     .leftJoin(users, eq(translationMemories.createdBy, users.id))
-    .where(eq(translationMemories.orgId, orgId))
+    .where(conditions)
     .orderBy(desc(translationMemories.createdAt))
     .limit(limit)
     .offset(offset);
@@ -74,7 +83,7 @@ export async function listOrgTMs(
   const [countResult] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(translationMemories)
-    .where(eq(translationMemories.orgId, orgId));
+    .where(conditions);
 
   return {
     items: tms as TranslationMemoryWithCreator[],
@@ -82,8 +91,59 @@ export async function listOrgTMs(
   };
 }
 
-export async function deleteTM(id: string): Promise<void> {
-  await db.delete(translationMemories).where(eq(translationMemories.id, id));
+export interface TMDeleteInfo {
+  unitCount: number;
+  linkedProjects: Array<{ id: string; name: string }>;
+}
+
+export async function getTMDeleteInfo(id: string): Promise<TMDeleteInfo> {
+  // Count units
+  const [unitCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(translationUnits)
+    .where(eq(translationUnits.tmId, id));
+
+  // Find linked projects
+  const linkedResources = await db
+    .select({
+      projectId: projectResources.projectId,
+      projectName: projects.name,
+    })
+    .from(projectResources)
+    .innerJoin(projects, eq(projectResources.projectId, projects.id))
+    .where(
+      and(
+        eq(projectResources.resourceId, id),
+        eq(projectResources.resourceType, 'tm'),
+        isNull(projects.deletedAt)
+      )
+    );
+
+  return {
+    unitCount: unitCount?.count ?? 0,
+    linkedProjects: linkedResources.map((r) => ({ id: r.projectId, name: r.projectName })),
+  };
+}
+
+export async function deleteTM(id: string, deletedBy: string): Promise<void> {
+  // Soft delete - set deletedAt and deletedBy
+  await db
+    .update(translationMemories)
+    .set({
+      deletedAt: new Date(),
+      deletedBy,
+    })
+    .where(eq(translationMemories.id, id));
+
+  // Remove from all project resources
+  await db
+    .delete(projectResources)
+    .where(
+      and(
+        eq(projectResources.resourceId, id),
+        eq(projectResources.resourceType, 'tm')
+      )
+    );
 }
 
 export async function updateTM(

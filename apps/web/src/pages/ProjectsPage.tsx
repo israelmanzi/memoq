@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { projectsApi } from '../api';
 import { useOrgStore } from '../stores/org';
 import { Pagination } from '../components/Pagination';
+import { formatProjectStatus, formatWorkflowType } from '../utils/formatters';
 import type { ProjectStatus } from '@memoq/shared';
 
 const PAGE_SIZE = 10;
@@ -87,7 +88,7 @@ export function ProjectsPage() {
                           {project.targetLanguage}
                         </span>
                       </div>
-                      <div className="mt-1 text-xs text-gray-500 flex items-center gap-4">
+                      <div className="mt-1 text-xs text-gray-500 flex items-center gap-2 flex-wrap">
                         <span>
                           Created{' '}
                           {new Date(project.createdAt).toLocaleDateString(undefined, {
@@ -96,16 +97,25 @@ export function ProjectsPage() {
                             day: 'numeric',
                           })}
                         </span>
-                        <span>• {project.workflowType.replace(/_/g, ' ')}</span>
-                        {project.updatedAt !== project.createdAt && (
-                          <span>
-                            • Modified{' '}
-                            {new Date(project.updatedAt).toLocaleDateString(undefined, {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric',
-                            })}
+                        {project.createdByName && (
+                          <span className="text-gray-400">
+                            by <span className="text-gray-600">{project.createdByName}</span>
                           </span>
+                        )}
+                        <span className="text-gray-300">•</span>
+                        <span>{formatWorkflowType(project.workflowType)}</span>
+                        {project.updatedAt !== project.createdAt && (
+                          <>
+                            <span className="text-gray-300">•</span>
+                            <span>
+                              Modified{' '}
+                              {new Date(project.updatedAt).toLocaleDateString(undefined, {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>
@@ -119,7 +129,7 @@ export function ProjectsPage() {
                               : 'bg-gray-100 text-gray-700'
                         }`}
                       >
-                        {project.status}
+                        {formatProjectStatus(project.status)}
                       </span>
                     </div>
                   </div>

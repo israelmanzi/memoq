@@ -12,6 +12,7 @@ import {
   deleteDocument,
   createSegmentsBulk,
   findSegmentById,
+  findSegmentByIdWithUsers,
   listDocumentSegments,
   updateSegment,
   updateSegmentsBulk,
@@ -26,6 +27,7 @@ import { findMatches, addTranslationUnit } from '../services/tm.service.js';
 import { findTermsInText } from '../services/tb.service.js';
 import { listProjectResources } from '../services/project.service.js';
 import { parseFile, detectFileType, getSupportedExtensions } from '../services/file-parser.service.js';
+import { logActivity } from '../services/activity.service.js';
 
 const createDocumentSchema = z.object({
   name: z.string().min(1).max(255),
@@ -94,10 +96,23 @@ export async function documentRoutes(app: FastifyInstance) {
           projectId,
           name: parsed.data.name,
           fileType: parsed.data.fileType,
+          createdBy: userId,
         });
 
         // Create segments
         await createSegmentsBulk(doc.id, parsed.data.segments);
+
+        // Log activity
+        await logActivity({
+          entityType: 'document',
+          entityId: doc.id,
+          entityName: doc.name,
+          action: 'create',
+          userId,
+          orgId: project.orgId,
+          projectId,
+          documentId: doc.id,
+        });
 
         // Pre-translate using attached TMs
         const resources = await listProjectResources(projectId);
@@ -186,10 +201,27 @@ export async function documentRoutes(app: FastifyInstance) {
           name: filename,
           fileType,
           originalContent: buffer.toString('utf-8'),
+          createdBy: userId,
         });
 
         // Create segments
         await createSegmentsBulk(doc.id, parseResult.segments);
+
+        // Log activity
+        await logActivity({
+          entityType: 'document',
+          entityId: doc.id,
+          entityName: doc.name,
+          action: 'upload',
+          userId,
+          orgId: project.orgId,
+          projectId,
+          documentId: doc.id,
+          metadata: {
+            fileType,
+            segmentCount: parseResult.segments.length,
+          },
+        });
 
         // Pre-translate using attached TMs
         const resources = await listProjectResources(projectId);
@@ -482,7 +514,7 @@ export async function documentRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
-      const segment = await findSegmentById(segmentId);
+      const segment = await findSegmentByIdWithUsers(segmentId);
       if (!segment || segment.documentId !== documentId) {
         return reply.status(404).send({ error: 'Segment not found' });
       }
@@ -563,12 +595,42 @@ export async function documentRoutes(app: FastifyInstance) {
       }
 
       const finalStatus = parsed.data.status ?? 'translated';
+      const oldStatus = segment.status ?? 'untranslated';
 
       const updated = await updateSegment(segmentId, {
         targetText: parsed.data.targetText,
         status: finalStatus,
         lastModifiedBy: userId,
       });
+
+      // Log significant status changes
+      const isReview = ['reviewed_1', 'reviewed_2', 'locked'].includes(finalStatus);
+      const wasUnreviewed = !['reviewed_1', 'reviewed_2', 'locked'].includes(oldStatus);
+
+      if (isReview && wasUnreviewed) {
+        // Log review action
+        await logActivity({
+          entityType: 'segment',
+          entityId: segmentId,
+          action: 'review',
+          userId,
+          orgId: project.orgId,
+          projectId: project.id,
+          documentId,
+          metadata: { status: finalStatus },
+        });
+      } else if (finalStatus === 'translated' && oldStatus === 'untranslated') {
+        // Log first translation
+        await logActivity({
+          entityType: 'segment',
+          entityId: segmentId,
+          action: 'translate',
+          userId,
+          orgId: project.orgId,
+          projectId: project.id,
+          documentId,
+        });
+      }
 
       // Auto-save to TM when:
       // 1. Explicitly confirmed via confirm: true (manual "Save to TM" button)

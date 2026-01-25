@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tbApi } from '../api';
+import { tbApi, type TBDeleteInfo } from '../api';
 import { useOrgStore } from '../stores/org';
 import { Pagination } from '../components/Pagination';
+import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
 
 const PAGE_SIZE = 10;
 
@@ -11,6 +12,9 @@ export function TBListPage() {
   const { currentOrg } = useOrgStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteInfo, setDeleteInfo] = useState<TBDeleteInfo | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['tbs', currentOrg?.id, offset],
@@ -20,6 +24,29 @@ export function TBListPage() {
 
   const tbs = data?.items ?? [];
   const total = data?.total ?? 0;
+
+  const handleDeleteClick = async (tb: { id: string; name: string }) => {
+    setDeleteTarget(tb);
+    try {
+      const info = await tbApi.getDeleteInfo(tb.id);
+      setDeleteInfo(info);
+    } catch {
+      setDeleteInfo({ termCount: 0, linkedProjects: [] });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      await tbApi.delete(deleteTarget.id);
+      queryClient.invalidateQueries({ queryKey: ['tbs'] });
+      setDeleteTarget(null);
+      setDeleteInfo(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -44,7 +71,7 @@ export function TBListPage() {
           <>
             <div className="divide-y divide-gray-200">
               {tbs.map((tb) => (
-                <TBRow key={tb.id} tb={tb} />
+                <TBRow key={tb.id} tb={tb} onDelete={handleDeleteClick} />
               ))}
             </div>
             <Pagination
@@ -67,6 +94,23 @@ export function TBListPage() {
           }}
         />
       )}
+
+      {deleteTarget && deleteInfo && (
+        <DeleteConfirmModal
+          isOpen={true}
+          onClose={() => {
+            setDeleteTarget(null);
+            setDeleteInfo(null);
+          }}
+          onConfirm={handleDelete}
+          mode="type-confirm"
+          title="Delete Term Base"
+          itemName={deleteTarget.name}
+          impacts={deleteInfo.termCount > 0 ? [{ label: 'terms', count: deleteInfo.termCount }] : []}
+          linkedProjects={deleteInfo.linkedProjects}
+          isDeleting={isDeleting}
+        />
+      )}
     </div>
   );
 }
@@ -77,8 +121,10 @@ function formatDate(date: string | Date | null | undefined): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; createdByName?: string | null } }) {
+function TBRow({ tb, onDelete }: { tb: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; createdByName?: string | null }; onDelete: (tb: { id: string; name: string }) => void }) {
+  const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [deleteTermId, setDeleteTermId] = useState<string | null>(null);
 
   const { data: tbDetail } = useQuery({
     queryKey: ['tb', tb.id],
@@ -90,6 +136,15 @@ function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string;
     queryKey: ['tb', tb.id, 'terms'],
     queryFn: () => tbApi.listTerms(tb.id, 50, 0),
     enabled: isExpanded,
+  });
+
+  const deleteTermMutation = useMutation({
+    mutationFn: (termId: string) => tbApi.deleteTerm(tb.id, termId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tb', tb.id] });
+      queryClient.invalidateQueries({ queryKey: ['tb', tb.id, 'terms'] });
+      setDeleteTermId(null);
+    },
   });
 
   const terms = termsData?.items ?? [];
@@ -116,14 +171,28 @@ function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string;
             {tb.createdByName && <span>by {tb.createdByName}</span>}
           </div>
         </div>
-        <svg
-          className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete({ id: tb.id, name: tb.name });
+            }}
+            className="p-1 text-gray-400 hover:text-red-600 rounded"
+            title="Delete Term Base"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+          <svg
+            className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
       </div>
 
       {isExpanded && tbDetail && (
@@ -138,14 +207,17 @@ function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string;
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-3/12">
                       Source Term
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-3/12">
                       Target Term
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-4/12">
                       Definition
+                    </th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase w-2/12">
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -155,6 +227,17 @@ function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string;
                       <td className="px-3 py-2 text-gray-900 font-medium">{term.sourceTerm}</td>
                       <td className="px-3 py-2 text-gray-700">{term.targetTerm}</td>
                       <td className="px-3 py-2 text-gray-500 text-xs">{term.definition || '—'}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => setDeleteTermId(term.id)}
+                          className="p-1 text-gray-400 hover:text-red-600 rounded"
+                          title="Delete term"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -164,6 +247,33 @@ function TBRow({ tb }: { tb: { id: string; name: string; sourceLanguage: string;
                   Showing 50 of {tbDetail.termCount} terms
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Delete Term Confirmation */}
+          {deleteTermId && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setDeleteTermId(null)}>
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Term</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Are you sure you want to delete this term? This action cannot be undone.
+                </p>
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setDeleteTermId(null)}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => deleteTermMutation.mutate(deleteTermId)}
+                    disabled={deleteTermMutation.isPending}
+                    className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleteTermMutation.isPending ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

@@ -14,8 +14,10 @@ import {
   findTermsInText,
   getTBStats,
   addTermsBulk,
+  getTBDeleteInfo,
 } from '../services/tb.service.js';
 import { getMembership } from '../services/org.service.js';
+import { logActivity } from '../services/activity.service.js';
 
 const createTBSchema = z.object({
   name: z.string().min(1).max(200),
@@ -84,6 +86,17 @@ export async function tbRoutes(app: FastifyInstance) {
           ...parsed.data,
           createdBy: userId,
         });
+
+        await logActivity({
+          entityType: 'tb',
+          entityId: tb.id,
+          entityName: tb.name,
+          action: 'create',
+          userId,
+          orgId,
+          metadata: { sourceLanguage: tb.sourceLanguage, targetLanguage: tb.targetLanguage },
+        });
+
         return reply.status(201).send(tb);
       } catch (error) {
         request.log.error({ err: error }, 'Failed to create term base');
@@ -159,11 +172,44 @@ export async function tbRoutes(app: FastifyInstance) {
       }
 
       const updated = await updateTB(tbId, parsed.data);
+
+      await logActivity({
+        entityType: 'tb',
+        entityId: tbId,
+        entityName: updated?.name ?? tb.name,
+        action: 'update',
+        userId,
+        orgId: tb.orgId,
+        metadata: { changes: Object.keys(parsed.data) },
+      });
+
       return reply.send(updated);
     }
   );
 
-  // Delete TB
+  // Get TB delete info (dependencies)
+  app.get<{ Params: { tbId: string } }>(
+    '/:tbId/delete-info',
+    async (request, reply) => {
+      const { tbId } = request.params;
+      const { userId } = request.user;
+
+      const tb = await findTBById(tbId);
+      if (!tb) {
+        return reply.status(404).send({ error: 'Term base not found' });
+      }
+
+      const membership = await getMembership(tb.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      const deleteInfo = await getTBDeleteInfo(tbId);
+      return reply.send(deleteInfo);
+    }
+  );
+
+  // Delete TB (soft delete)
   app.delete<{ Params: { tbId: string } }>(
     '/:tbId',
     async (request, reply) => {
@@ -180,7 +226,17 @@ export async function tbRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Only admins can delete term bases' });
       }
 
-      await deleteTB(tbId);
+      await deleteTB(tbId, userId);
+
+      await logActivity({
+        entityType: 'tb',
+        entityId: tbId,
+        entityName: tb.name,
+        action: 'delete',
+        userId,
+        orgId: tb.orgId,
+      });
+
       return reply.status(204).send();
     }
   );
@@ -218,6 +274,17 @@ export async function tbRoutes(app: FastifyInstance) {
           ...parsed.data,
           createdBy: userId,
         });
+
+        await logActivity({
+          entityType: 'tb_term',
+          entityId: term.id,
+          entityName: `${parsed.data.sourceTerm} → ${parsed.data.targetTerm}`,
+          action: 'create',
+          userId,
+          orgId: tb.orgId,
+          metadata: { tbId, tbName: tb.name },
+        });
+
         return reply.status(201).send(term);
       } catch (error) {
         request.log.error({ err: error }, 'Failed to add term');
@@ -253,6 +320,17 @@ export async function tbRoutes(app: FastifyInstance) {
 
       try {
         const count = await addTermsBulk(tbId, parsed.data.terms, userId);
+
+        await logActivity({
+          entityType: 'tb',
+          entityId: tbId,
+          entityName: tb.name,
+          action: 'upload',
+          userId,
+          orgId: tb.orgId,
+          metadata: { importedCount: count },
+        });
+
         return reply.send({ imported: count });
       } catch (error) {
         request.log.error({ err: error }, 'Failed to bulk import terms');
@@ -346,6 +424,17 @@ export async function tbRoutes(app: FastifyInstance) {
       }
 
       const updated = await updateTerm(termId, parsed.data);
+
+      await logActivity({
+        entityType: 'tb_term',
+        entityId: termId,
+        entityName: `${updated?.sourceTerm ?? term.sourceTerm} → ${updated?.targetTerm ?? term.targetTerm}`,
+        action: 'update',
+        userId,
+        orgId: tb.orgId,
+        metadata: { tbId, tbName: tb.name, changes: Object.keys(parsed.data) },
+      });
+
       return reply.send(updated);
     }
   );
@@ -373,6 +462,17 @@ export async function tbRoutes(app: FastifyInstance) {
       }
 
       await deleteTerm(termId);
+
+      await logActivity({
+        entityType: 'tb_term',
+        entityId: termId,
+        entityName: `${term.sourceTerm} → ${term.targetTerm}`,
+        action: 'delete',
+        userId,
+        orgId: tb.orgId,
+        metadata: { tbId, tbName: tb.name },
+      });
+
       return reply.status(204).send();
     }
   );

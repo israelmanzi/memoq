@@ -1,19 +1,26 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from '@tanstack/react-router';
-import { projectsApi, tmApi, tbApi } from '../api';
+import { Link, useParams, useNavigate } from '@tanstack/react-router';
+import { projectsApi, tmApi, tbApi, activityApi, type ProjectDeleteInfo } from '../api';
 import { useOrgStore } from '../stores/org';
 import { Pagination } from '../components/Pagination';
+import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
+import { ActivityFeed } from '../components/ActivityFeed';
+import { formatProjectStatus, formatWorkflowType, formatWorkflowStatus } from '../utils/formatters';
 
 const DOCS_PAGE_SIZE = 10;
 
 export function ProjectDetailPage() {
   const { projectId } = useParams({ from: '/protected/projects/$projectId' });
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { currentOrg } = useOrgStore();
   const [showAddDocModal, setShowAddDocModal] = useState(false);
   const [showAddResourceModal, setShowAddResourceModal] = useState(false);
   const [docsOffset, setDocsOffset] = useState(0);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteInfo, setDeleteInfo] = useState<ProjectDeleteInfo | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
@@ -32,9 +39,38 @@ export function ProjectDetailPage() {
     enabled: !!project,
   });
 
+  const { data: activityData, isLoading: activityLoading } = useQuery({
+    queryKey: ['project-activity', projectId],
+    queryFn: () => activityApi.listForProject(projectId, { limit: 20 }),
+    enabled: !!project,
+  });
+
   const documents = docsData?.items ?? [];
   const docsTotal = docsData?.total ?? 0;
   const resources = resourcesData?.items ?? [];
+  const activities = activityData?.items ?? [];
+
+  const handleDeleteClick = async () => {
+    try {
+      const info = await projectsApi.getDeleteInfo(projectId);
+      setDeleteInfo(info);
+      setShowDeleteModal(true);
+    } catch {
+      setDeleteInfo({ documentCount: 0, segmentCount: 0 });
+      setShowDeleteModal(true);
+    }
+  };
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await projectsApi.delete(projectId);
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      navigate({ to: '/projects' });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   if (isLoading) {
     return <div className="text-center py-8 text-gray-500">Loading...</div>;
@@ -56,20 +92,31 @@ export function ProjectDetailPage() {
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mt-2">{project.name}</h1>
           <p className="text-gray-600 mt-1">
-            {project.sourceLanguage} → {project.targetLanguage} • {project.workflowType}
+            {project.sourceLanguage} → {project.targetLanguage} • {formatWorkflowType(project.workflowType)}
           </p>
         </div>
-        <span
-          className={`px-3 py-1 text-sm font-medium rounded-full ${
-            project.status === 'active'
-              ? 'bg-green-100 text-green-700'
-              : project.status === 'completed'
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-gray-100 text-gray-700'
-          }`}
-        >
-          {project.status}
-        </span>
+        <div className="flex items-center gap-3">
+          <span
+            className={`px-3 py-1 text-sm font-medium rounded-full ${
+              project.status === 'active'
+                ? 'bg-green-100 text-green-700'
+                : project.status === 'completed'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-gray-100 text-gray-700'
+            }`}
+          >
+            {formatProjectStatus(project.status)}
+          </span>
+          <button
+            onClick={handleDeleteClick}
+            className="p-2 text-gray-400 hover:text-red-600 rounded"
+            title="Delete project"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -128,8 +175,16 @@ export function ProjectDetailPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="font-medium text-gray-900">{doc.name}</div>
-                      <div className="text-sm text-gray-500 mt-1">
-                        {doc.totalSegments} segments • {doc.progress}% complete
+                      <div className="text-sm text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
+                        <span>{doc.totalSegments} segments</span>
+                        <span className="text-gray-300">•</span>
+                        <span>{doc.progress}% complete</span>
+                        {doc.createdByName && (
+                          <>
+                            <span className="text-gray-300">•</span>
+                            <span>by {doc.createdByName}</span>
+                          </>
+                        )}
                       </div>
                     </div>
                     <span
@@ -141,7 +196,7 @@ export function ProjectDetailPage() {
                             : 'bg-blue-100 text-blue-700'
                       }`}
                     >
-                      {doc.workflowStatus}
+                      {formatWorkflowStatus(doc.workflowStatus)}
                     </span>
                   </div>
                 </Link>
@@ -188,6 +243,20 @@ export function ProjectDetailPage() {
         </div>
       </div>
 
+      {/* Activity Feed */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">Recent Activity</h2>
+        </div>
+        <div className="px-6 py-4">
+          <ActivityFeed
+            activities={activities}
+            isLoading={activityLoading}
+            showEntityName={true}
+          />
+        </div>
+      </div>
+
       {/* Add Document Modal */}
       {showAddDocModal && (
         <AddDocumentModal
@@ -212,6 +281,26 @@ export function ProjectDetailPage() {
             setShowAddResourceModal(false);
             queryClient.invalidateQueries({ queryKey: ['project-resources', projectId] });
           }}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && deleteInfo && (
+        <DeleteConfirmModal
+          isOpen={true}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setDeleteInfo(null);
+          }}
+          onConfirm={handleDelete}
+          mode="type-confirm"
+          title="Delete Project"
+          itemName={project.name}
+          impacts={[
+            ...(deleteInfo.documentCount > 0 ? [{ label: 'documents', count: deleteInfo.documentCount }] : []),
+            ...(deleteInfo.segmentCount > 0 ? [{ label: 'segments', count: deleteInfo.segmentCount }] : []),
+          ]}
+          isDeleting={isDeleting}
         />
       )}
     </div>

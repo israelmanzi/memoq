@@ -1,6 +1,7 @@
 export { api, ApiError } from './client';
 export { authApi } from './auth';
 export { orgsApi } from './organizations';
-export { projectsApi, type SegmentWithMatchInfo } from './projects';
-export { tmApi } from './tm';
-export { tbApi } from './tb';
+export { projectsApi, type SegmentWithMatchInfo, type ProjectDeleteInfo } from './projects';
+export { tmApi, type TMDeleteInfo } from './tm';
+export { tbApi, type TBDeleteInfo } from './tb';
+export { activityApi } from './activity';

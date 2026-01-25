@@ -1,4 +1,4 @@
-import { eq, and, sql, desc } from 'drizzle-orm';
+import { eq, and, sql, desc, isNull } from 'drizzle-orm';
 import {
   db,
   projects,
@@ -6,6 +6,7 @@ import {
   projectResources,
   documents,
   segments,
+  users,
 } from '../db/index.js';
 import type {
   Project,
@@ -59,13 +60,21 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   return project as Project;
 }
 
-export async function findProjectById(id: string): Promise<Project | null> {
+export async function findProjectById(id: string, includeDeleted = false): Promise<Project | null> {
+  const conditions = includeDeleted
+    ? eq(projects.id, id)
+    : and(eq(projects.id, id), isNull(projects.deletedAt));
+
   const [project] = await db
     .select()
     .from(projects)
-    .where(eq(projects.id, id));
+    .where(conditions);
 
   return project as Project | null;
+}
+
+export interface ProjectWithCreator extends Project {
+  createdByName: string | null;
 }
 
 export async function listOrgProjects(
@@ -75,16 +84,30 @@ export async function listOrgProjects(
     limit?: number;
     offset?: number;
   } = {}
-): Promise<{ items: Project[]; total: number }> {
+): Promise<{ items: ProjectWithCreator[]; total: number }> {
   const { status, limit = 100, offset = 0 } = options;
-  const conditions = [eq(projects.orgId, orgId)];
+  const conditions = [eq(projects.orgId, orgId), isNull(projects.deletedAt)];
   if (status) {
     conditions.push(eq(projects.status, status));
   }
 
   const result = await db
-    .select()
+    .select({
+      id: projects.id,
+      orgId: projects.orgId,
+      name: projects.name,
+      description: projects.description,
+      sourceLanguage: projects.sourceLanguage,
+      targetLanguage: projects.targetLanguage,
+      workflowType: projects.workflowType,
+      status: projects.status,
+      createdBy: projects.createdBy,
+      createdAt: projects.createdAt,
+      updatedAt: projects.updatedAt,
+      createdByName: users.name,
+    })
     .from(projects)
+    .leftJoin(users, eq(projects.createdBy, users.id))
     .where(and(...conditions))
     .orderBy(desc(projects.createdAt))
     .limit(limit)
@@ -96,7 +119,7 @@ export async function listOrgProjects(
     .where(and(...conditions));
 
   return {
-    items: result as Project[],
+    items: result as ProjectWithCreator[],
     total: countResult?.count ?? 0,
   };
 }
@@ -119,8 +142,40 @@ export async function updateProject(
   return project as Project | null;
 }
 
-export async function deleteProject(id: string): Promise<void> {
-  await db.delete(projects).where(eq(projects.id, id));
+export interface ProjectDeleteInfo {
+  documentCount: number;
+  segmentCount: number;
+}
+
+export async function getProjectDeleteInfo(id: string): Promise<ProjectDeleteInfo> {
+  // Count documents
+  const [docCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(documents)
+    .where(eq(documents.projectId, id));
+
+  // Count segments across all documents
+  const [segCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(segments)
+    .innerJoin(documents, eq(segments.documentId, documents.id))
+    .where(eq(documents.projectId, id));
+
+  return {
+    documentCount: docCount?.count ?? 0,
+    segmentCount: segCount?.count ?? 0,
+  };
+}
+
+export async function deleteProject(id: string, deletedBy: string): Promise<void> {
+  // Soft delete - set deletedAt and deletedBy
+  await db
+    .update(projects)
+    .set({
+      deletedAt: new Date(),
+      deletedBy,
+    })
+    .where(eq(projects.id, id));
 }
 
 // ============ Project Members ============
@@ -255,6 +310,7 @@ export interface CreateDocumentInput {
   name: string;
   fileType: string;
   originalContent?: string;
+  createdBy?: string;
 }
 
 export async function createDocument(input: CreateDocumentInput): Promise<Document> {
@@ -265,6 +321,7 @@ export async function createDocument(input: CreateDocumentInput): Promise<Docume
       name: input.name,
       fileType: input.fileType,
       originalContent: input.originalContent,
+      createdBy: input.createdBy,
     })
     .returning();
 
@@ -281,15 +338,32 @@ export async function findDocumentById(id: string): Promise<Document | null> {
   return doc as Document | null;
 }
 
+export interface DocumentWithCreator extends Document {
+  createdByName: string | null;
+}
+
 export async function listProjectDocuments(
   projectId: string,
   options: { limit?: number; offset?: number } = {}
-): Promise<{ items: Document[]; total: number }> {
+): Promise<{ items: DocumentWithCreator[]; total: number }> {
   const { limit = 100, offset = 0 } = options;
 
   const docs = await db
-    .select()
+    .select({
+      id: documents.id,
+      projectId: documents.projectId,
+      name: documents.name,
+      fileType: documents.fileType,
+      originalContent: documents.originalContent,
+      workflowStatus: documents.workflowStatus,
+      createdBy: documents.createdBy,
+      updatedBy: documents.updatedBy,
+      createdAt: documents.createdAt,
+      updatedAt: documents.updatedAt,
+      createdByName: users.name,
+    })
     .from(documents)
+    .leftJoin(users, eq(documents.createdBy, users.id))
     .where(eq(documents.projectId, projectId))
     .orderBy(desc(documents.createdAt))
     .limit(limit)
@@ -301,7 +375,7 @@ export async function listProjectDocuments(
     .where(eq(documents.projectId, projectId));
 
   return {
-    items: docs as Document[],
+    items: docs as DocumentWithCreator[],
     total: countResult?.count ?? 0,
   };
 }
@@ -371,6 +445,46 @@ export async function findSegmentById(id: string): Promise<Segment | null> {
   return segment as Segment | null;
 }
 
+export interface SegmentWithUserNames extends Segment {
+  translatedByName: string | null;
+  reviewedByName: string | null;
+  lastModifiedByName: string | null;
+}
+
+export async function findSegmentByIdWithUsers(id: string): Promise<SegmentWithUserNames | null> {
+  // Simple approach: fetch segment then fetch user names separately
+  const [segment] = await db.select().from(segments).where(eq(segments.id, id));
+
+  if (!segment) return null;
+
+  // Fetch user names
+  let translatedByName: string | null = null;
+  let reviewedByName: string | null = null;
+  let lastModifiedByName: string | null = null;
+
+  if (segment.translatedBy) {
+    const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, segment.translatedBy));
+    translatedByName = user?.name ?? null;
+  }
+
+  if (segment.reviewedBy) {
+    const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, segment.reviewedBy));
+    reviewedByName = user?.name ?? null;
+  }
+
+  if (segment.lastModifiedBy) {
+    const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, segment.lastModifiedBy));
+    lastModifiedByName = user?.name ?? null;
+  }
+
+  return {
+    ...(segment as Segment),
+    translatedByName,
+    reviewedByName,
+    lastModifiedByName,
+  };
+}
+
 export async function listDocumentSegments(documentId: string): Promise<Segment[]> {
   const result = await db
     .select()
@@ -390,9 +504,27 @@ export async function updateSegment(
     lastModifiedBy?: string;
   }
 ): Promise<Segment | null> {
+  // Build update object with tracking fields
+  const updateData: Record<string, unknown> = {
+    ...data,
+    updatedAt: new Date(),
+  };
+
+  // Track who translated and when
+  if (data.status && ['translated', 'draft'].includes(data.status) && data.lastModifiedBy) {
+    updateData.translatedBy = data.lastModifiedBy;
+    updateData.translatedAt = new Date();
+  }
+
+  // Track who reviewed and when
+  if (data.status && ['reviewed_1', 'reviewed_2', 'locked'].includes(data.status) && data.lastModifiedBy) {
+    updateData.reviewedBy = data.lastModifiedBy;
+    updateData.reviewedAt = new Date();
+  }
+
   const [segment] = await db
     .update(segments)
-    .set({ ...data, updatedAt: new Date() })
+    .set(updateData)
     .where(eq(segments.id, id))
     .returning();
 

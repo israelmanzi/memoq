@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { orgsApi } from '../api';
 import { useOrgStore } from '../stores/org';
 import { useAuthStore } from '../stores/auth';
+import { formatOrgRole } from '../utils/formatters';
 import type { OrgRole } from '@memoq/shared';
 
 export function SettingsPage() {
@@ -105,7 +106,7 @@ function MembersTab({
                 </div>
                 <div className="flex items-center gap-4">
                   <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded-full">
-                    {member.role}
+                    {formatOrgRole(member.role)}
                   </span>
                   {canManage && member.user.id !== currentUserId && (
                     <button
@@ -238,7 +239,7 @@ function GeneralTab({ org }: { org: { id: string; name: string; slug: string; ro
         </div>
         <div>
           <dt className="text-sm font-medium text-gray-500">Your Role</dt>
-          <dd className="mt-1 text-gray-900 capitalize">{org.role.replace('_', ' ')}</dd>
+          <dd className="mt-1 text-gray-900">{formatOrgRole(org.role)}</dd>
         </div>
       </dl>
     </div>

@@ -16,6 +16,11 @@ export interface TMWithStats extends TranslationMemory {
   lastUpdated: string | null;
 }
 
+export interface TMDeleteInfo {
+  unitCount: number;
+  linkedProjects: Array<{ id: string; name: string }>;
+}
+
 export interface AddUnitInput {
   sourceText: string;
   targetText: string;
@@ -45,6 +50,8 @@ export const tmApi = {
   update: (tmId: string, name: string) => api.patch<TranslationMemory>(`/tm/${tmId}`, { name }),
 
   delete: (tmId: string) => api.delete(`/tm/${tmId}`),
+
+  getDeleteInfo: (tmId: string) => api.get<TMDeleteInfo>(`/tm/${tmId}/delete-info`),
 
   // Units
   listUnits: (tmId: string, limit = 100, offset = 0) =>

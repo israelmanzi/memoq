@@ -13,8 +13,10 @@ import {
   findMatches,
   getTMStats,
   addTranslationUnitsBulk,
+  getTMDeleteInfo,
 } from '../services/tm.service.js';
 import { getMembership } from '../services/org.service.js';
+import { logActivity } from '../services/activity.service.js';
 
 const createTMSchema = z.object({
   name: z.string().min(1).max(200),
@@ -86,6 +88,17 @@ export async function tmRoutes(app: FastifyInstance) {
           ...parsed.data,
           createdBy: userId,
         });
+
+        await logActivity({
+          entityType: 'tm',
+          entityId: tm.id,
+          entityName: tm.name,
+          action: 'create',
+          userId,
+          orgId,
+          metadata: { sourceLanguage: tm.sourceLanguage, targetLanguage: tm.targetLanguage },
+        });
+
         return reply.status(201).send(tm);
       } catch (error) {
         request.log.error({ err: error }, 'Failed to create TM');
@@ -161,11 +174,44 @@ export async function tmRoutes(app: FastifyInstance) {
       }
 
       const updated = await updateTM(tmId, parsed.data);
+
+      await logActivity({
+        entityType: 'tm',
+        entityId: tmId,
+        entityName: updated?.name ?? tm.name,
+        action: 'update',
+        userId,
+        orgId: tm.orgId,
+        metadata: { changes: Object.keys(parsed.data) },
+      });
+
       return reply.send(updated);
     }
   );
 
-  // Delete TM
+  // Get TM delete info (dependencies)
+  app.get<{ Params: { tmId: string } }>(
+    '/:tmId/delete-info',
+    async (request, reply) => {
+      const { tmId } = request.params;
+      const { userId } = request.user;
+
+      const tm = await findTMById(tmId);
+      if (!tm) {
+        return reply.status(404).send({ error: 'Translation memory not found' });
+      }
+
+      const membership = await getMembership(tm.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      const deleteInfo = await getTMDeleteInfo(tmId);
+      return reply.send(deleteInfo);
+    }
+  );
+
+  // Delete TM (soft delete)
   app.delete<{ Params: { tmId: string } }>(
     '/:tmId',
     async (request, reply) => {
@@ -182,7 +228,17 @@ export async function tmRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Only admins can delete TMs' });
       }
 
-      await deleteTM(tmId);
+      await deleteTM(tmId, userId);
+
+      await logActivity({
+        entityType: 'tm',
+        entityId: tmId,
+        entityName: tm.name,
+        action: 'delete',
+        userId,
+        orgId: tm.orgId,
+      });
+
       return reply.status(204).send();
     }
   );
@@ -220,6 +276,17 @@ export async function tmRoutes(app: FastifyInstance) {
           ...parsed.data,
           createdBy: userId,
         });
+
+        await logActivity({
+          entityType: 'tm_unit',
+          entityId: unit.id,
+          entityName: parsed.data.sourceText.slice(0, 50),
+          action: 'create',
+          userId,
+          orgId: tm.orgId,
+          metadata: { tmId, tmName: tm.name },
+        });
+
         return reply.status(201).send(unit);
       } catch (error) {
         request.log.error({ err: error }, 'Failed to add translation unit');
@@ -255,6 +322,17 @@ export async function tmRoutes(app: FastifyInstance) {
 
       try {
         const count = await addTranslationUnitsBulk(tmId, parsed.data.units, userId);
+
+        await logActivity({
+          entityType: 'tm',
+          entityId: tmId,
+          entityName: tm.name,
+          action: 'upload',
+          userId,
+          orgId: tm.orgId,
+          metadata: { importedCount: count },
+        });
+
         return reply.send({ imported: count });
       } catch (error) {
         request.log.error({ err: error }, 'Failed to bulk import units');
@@ -336,6 +414,17 @@ export async function tmRoutes(app: FastifyInstance) {
       }
 
       await deleteTranslationUnit(unitId);
+
+      await logActivity({
+        entityType: 'tm_unit',
+        entityId: unitId,
+        entityName: unit.sourceText.slice(0, 50),
+        action: 'delete',
+        userId,
+        orgId: tm.orgId,
+        metadata: { tmId, tmName: tm.name },
+      });
+
       return reply.status(204).send();
     }
   );

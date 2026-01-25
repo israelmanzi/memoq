@@ -112,6 +112,8 @@ export interface Document {
   fileType: FileType;
   originalContent: string | null;
   workflowStatus: WorkflowStatus;
+  createdBy: string | null;
+  updatedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -125,8 +127,16 @@ export interface Segment {
   status: SegmentStatus;
   lockedBy: string | null;
   lastModifiedBy: string | null;
+  translatedBy: string | null;
+  translatedAt: Date | null;
+  reviewedBy: string | null;
+  reviewedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  // Optional user names (populated when fetching single segment)
+  translatedByName?: string | null;
+  reviewedByName?: string | null;
+  lastModifiedByName?: string | null;
 }
 
 // API types
@@ -151,6 +161,19 @@ export interface PaginatedResponse<T> {
   page: number;
   pageSize: number;
   hasMore: boolean;
+}
+
+// Activity log types
+export interface ActivityLogEntry {
+  id: string;
+  entityType: string;
+  entityId: string;
+  entityName: string | null;
+  action: string;
+  userId: string;
+  userName: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
 }
 
 // Auth types

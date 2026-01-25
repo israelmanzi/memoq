@@ -88,6 +88,9 @@ export const translationMemories = pgTable(
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    // Soft delete
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (table) => [index('idx_tm_org').on(table.orgId)]
 );
@@ -152,6 +155,9 @@ export const termBases = pgTable(
     targetLanguage: text('target_language').notNull(),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // Soft delete
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (table) => [index('idx_tb_org').on(table.orgId)]
 );
@@ -180,7 +186,9 @@ export const terms = pgTable(
     targetTerm: text('target_term').notNull(),
     definition: text('definition'),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('idx_terms_tb').on(table.tbId)]
 );
@@ -211,8 +219,12 @@ export const projects = pgTable(
     workflowType: text('workflow_type').default('single_review'), // simple, single_review, full_review
     status: text('status').default('active'), // active, completed, archived
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    // Soft delete
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (table) => [index('idx_projects_org').on(table.orgId)]
 );
@@ -298,6 +310,8 @@ export const documents = pgTable(
     fileType: text('file_type').notNull(),
     originalContent: text('original_content'),
     workflowStatus: text('workflow_status').default('translation'), // translation, review_1, review_2, complete
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -364,6 +378,12 @@ export const segments = pgTable(
     status: text('status').default('untranslated'), // untranslated, draft, translated, reviewed_1, reviewed_2, locked
     lockedBy: uuid('locked_by').references(() => users.id, { onDelete: 'set null' }),
     lastModifiedBy: uuid('last_modified_by').references(() => users.id, { onDelete: 'set null' }),
+    // Translation tracking
+    translatedBy: uuid('translated_by').references(() => users.id, { onDelete: 'set null' }),
+    translatedAt: timestamp('translated_at', { withTimezone: true }),
+    // Review tracking
+    reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -438,5 +458,58 @@ export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, {
     fields: [sessions.userId],
     references: [users.id],
+  }),
+}));
+
+// ============ Activity Logs ============
+export const activityLogs = pgTable(
+  'activity_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // Entity info
+    entityType: text('entity_type').notNull(), // project, document, segment, tm, tb, tm_unit, tb_term
+    entityId: uuid('entity_id').notNull(),
+    entityName: text('entity_name'), // Cached name for display without joins
+    // Action info
+    action: text('action').notNull(), // create, update, delete, translate, review, confirm, upload, etc.
+    // Actor
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Scoping for efficient queries
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    documentId: uuid('document_id').references(() => documents.id, { onDelete: 'cascade' }),
+    // Details
+    metadata: jsonb('metadata').default({}), // Old/new values, additional context
+    // Timestamp
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_activity_org').on(table.orgId),
+    index('idx_activity_project').on(table.projectId),
+    index('idx_activity_document').on(table.documentId),
+    index('idx_activity_user').on(table.userId),
+    index('idx_activity_entity').on(table.entityType, table.entityId),
+    index('idx_activity_created').on(table.createdAt),
+  ]
+);
+
+export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [activityLogs.userId],
+    references: [users.id],
+  }),
+  organization: one(organizations, {
+    fields: [activityLogs.orgId],
+    references: [organizations.id],
+  }),
+  project: one(projects, {
+    fields: [activityLogs.projectId],
+    references: [projects.id],
+  }),
+  document: one(documents, {
+    fields: [activityLogs.documentId],
+    references: [documents.id],
   }),
 }));

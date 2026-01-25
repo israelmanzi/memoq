@@ -9,6 +9,10 @@ export interface CreateProjectInput {
   workflowType?: WorkflowType;
 }
 
+export interface ProjectWithCreator extends Project {
+  createdByName: string | null;
+}
+
 export interface ProjectWithStats extends Project {
   documentCount: number;
   totalSegments: number;
@@ -18,10 +22,15 @@ export interface ProjectWithStats extends Project {
   userRole: ProjectRole | null;
 }
 
+export interface DocumentWithCreator extends Document {
+  createdByName: string | null;
+}
+
 export interface DocumentWithStats extends Document {
   totalSegments: number;
   byStatus: Record<string, number>;
   progress: number;
+  createdByName?: string | null;
 }
 
 export interface CreateDocumentInput {
@@ -51,6 +60,11 @@ export interface SegmentWithMatchInfo extends Segment {
   hasContextMatch: boolean;
 }
 
+export interface ProjectDeleteInfo {
+  documentCount: number;
+  segmentCount: number;
+}
+
 export interface PaginationParams {
   limit?: number;
   offset?: number;
@@ -64,7 +78,7 @@ export const projectsApi = {
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.offset) params.set('offset', String(options.offset));
     const query = params.toString() ? `?${params}` : '';
-    return api.get<{ items: Project[]; total: number }>(`/projects/org/${orgId}${query}`);
+    return api.get<{ items: ProjectWithCreator[]; total: number }>(`/projects/org/${orgId}${query}`);
   },
 
   get: (projectId: string) => api.get<ProjectWithStats>(`/projects/${projectId}`),
@@ -76,6 +90,8 @@ export const projectsApi = {
     api.patch<Project>(`/projects/${projectId}`, data),
 
   delete: (projectId: string) => api.delete(`/projects/${projectId}`),
+
+  getDeleteInfo: (projectId: string) => api.get<ProjectDeleteInfo>(`/projects/${projectId}/delete-info`),
 
   // Project members
   listMembers: (projectId: string) =>

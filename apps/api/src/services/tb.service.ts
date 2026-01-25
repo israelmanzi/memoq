@@ -1,5 +1,5 @@
-import { eq, and, sql, desc, inArray } from 'drizzle-orm';
-import { db, termBases, terms, users } from '../db/index.js';
+import { eq, and, sql, desc, inArray, isNull } from 'drizzle-orm';
+import { db, termBases, terms, users, projectResources, projects } from '../db/index.js';
 import type { TermBase, Term, TermMatch } from '@memoq/shared';
 
 export interface TermBaseWithCreator extends TermBase {
@@ -35,11 +35,15 @@ export async function createTB(input: CreateTBInput): Promise<TermBase> {
   return tb as TermBase;
 }
 
-export async function findTBById(id: string): Promise<TermBase | null> {
+export async function findTBById(id: string, includeDeleted = false): Promise<TermBase | null> {
+  const conditions = includeDeleted
+    ? eq(termBases.id, id)
+    : and(eq(termBases.id, id), isNull(termBases.deletedAt));
+
   const [tb] = await db
     .select()
     .from(termBases)
-    .where(eq(termBases.id, id));
+    .where(conditions);
 
   return tb ?? null;
 }
@@ -49,6 +53,11 @@ export async function listOrgTBs(
   options: { limit?: number; offset?: number } = {}
 ): Promise<{ items: TermBaseWithCreator[]; total: number }> {
   const { limit = 100, offset = 0 } = options;
+
+  const conditions = and(
+    eq(termBases.orgId, orgId),
+    isNull(termBases.deletedAt)
+  );
 
   const tbs = await db
     .select({
@@ -63,7 +72,7 @@ export async function listOrgTBs(
     })
     .from(termBases)
     .leftJoin(users, eq(termBases.createdBy, users.id))
-    .where(eq(termBases.orgId, orgId))
+    .where(conditions)
     .orderBy(desc(termBases.createdAt))
     .limit(limit)
     .offset(offset);
@@ -71,7 +80,7 @@ export async function listOrgTBs(
   const [countResult] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(termBases)
-    .where(eq(termBases.orgId, orgId));
+    .where(conditions);
 
   return {
     items: tbs as TermBaseWithCreator[],
@@ -79,8 +88,59 @@ export async function listOrgTBs(
   };
 }
 
-export async function deleteTB(id: string): Promise<void> {
-  await db.delete(termBases).where(eq(termBases.id, id));
+export interface TBDeleteInfo {
+  termCount: number;
+  linkedProjects: Array<{ id: string; name: string }>;
+}
+
+export async function getTBDeleteInfo(id: string): Promise<TBDeleteInfo> {
+  // Count terms
+  const [termCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(terms)
+    .where(eq(terms.tbId, id));
+
+  // Find linked projects
+  const linkedResources = await db
+    .select({
+      projectId: projectResources.projectId,
+      projectName: projects.name,
+    })
+    .from(projectResources)
+    .innerJoin(projects, eq(projectResources.projectId, projects.id))
+    .where(
+      and(
+        eq(projectResources.resourceId, id),
+        eq(projectResources.resourceType, 'tb'),
+        isNull(projects.deletedAt)
+      )
+    );
+
+  return {
+    termCount: termCount?.count ?? 0,
+    linkedProjects: linkedResources.map((r) => ({ id: r.projectId, name: r.projectName })),
+  };
+}
+
+export async function deleteTB(id: string, deletedBy: string): Promise<void> {
+  // Soft delete - set deletedAt and deletedBy
+  await db
+    .update(termBases)
+    .set({
+      deletedAt: new Date(),
+      deletedBy,
+    })
+    .where(eq(termBases.id, id));
+
+  // Remove from all project resources
+  await db
+    .delete(projectResources)
+    .where(
+      and(
+        eq(projectResources.resourceId, id),
+        eq(projectResources.resourceType, 'tb')
+      )
+    );
 }
 
 export async function updateTB(

@@ -18,7 +18,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   const token = localStorage.getItem('token');
 
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(options.body !== undefined && { 'Content-Type': 'application/json' }),
     ...(token && { Authorization: `Bearer ${token}` }),
     ...options.headers,
   };
@@ -26,7 +26,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   const config: RequestInit = {
     ...options,
     headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   };
 
   const response = await fetch(`${API_BASE}${endpoint}`, config);

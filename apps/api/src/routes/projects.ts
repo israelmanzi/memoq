@@ -15,10 +15,12 @@ import {
   removeProjectResource,
   listProjectResources,
   getProjectStats,
+  getProjectDeleteInfo,
 } from '../services/project.service.js';
 import { getMembership } from '../services/org.service.js';
 import { findTMById } from '../services/tm.service.js';
 import { findTBById } from '../services/tb.service.js';
+import { logActivity } from '../services/activity.service.js';
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(200),
@@ -77,6 +79,17 @@ export async function projectRoutes(app: FastifyInstance) {
           ...parsed.data,
           createdBy: userId,
         });
+
+        await logActivity({
+          entityType: 'project',
+          entityId: project.id,
+          entityName: project.name,
+          action: 'create',
+          userId,
+          orgId,
+          projectId: project.id,
+        });
+
         return reply.status(201).send(project);
       } catch (error) {
         request.log.error({ err: error }, 'Failed to create project');
@@ -163,11 +176,45 @@ export async function projectRoutes(app: FastifyInstance) {
       }
 
       const updated = await updateProject(projectId, parsed.data);
+
+      await logActivity({
+        entityType: 'project',
+        entityId: projectId,
+        entityName: updated?.name ?? project.name,
+        action: 'update',
+        userId,
+        orgId: project.orgId,
+        projectId,
+        metadata: { changes: Object.keys(parsed.data) },
+      });
+
       return reply.send(updated);
     }
   );
 
-  // Delete project
+  // Get project delete info (dependencies)
+  app.get<{ Params: { projectId: string } }>(
+    '/:projectId/delete-info',
+    async (request, reply) => {
+      const { projectId } = request.params;
+      const { userId } = request.user;
+
+      const project = await findProjectById(projectId);
+      if (!project) {
+        return reply.status(404).send({ error: 'Project not found' });
+      }
+
+      const membership = await getMembership(project.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      const deleteInfo = await getProjectDeleteInfo(projectId);
+      return reply.send(deleteInfo);
+    }
+  );
+
+  // Delete project (soft delete)
   app.delete<{ Params: { projectId: string } }>(
     '/:projectId',
     async (request, reply) => {
@@ -184,7 +231,17 @@ export async function projectRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Only admins can delete projects' });
       }
 
-      await deleteProject(projectId);
+      await deleteProject(projectId, userId);
+
+      await logActivity({
+        entityType: 'project',
+        entityId: projectId,
+        entityName: project.name,
+        action: 'delete',
+        userId,
+        orgId: project.orgId,
+      });
+
       return reply.status(204).send();
     }
   );
@@ -253,6 +310,18 @@ export async function projectRoutes(app: FastifyInstance) {
           projectId,
           ...parsed.data,
         });
+
+        await logActivity({
+          entityType: 'project',
+          entityId: projectId,
+          entityName: project.name,
+          action: 'add_member',
+          userId,
+          orgId: project.orgId,
+          projectId,
+          metadata: { memberId: parsed.data.userId, role: parsed.data.role },
+        });
+
         return reply.status(201).send(member);
       } catch (error) {
         request.log.error({ err: error }, 'Failed to add project member');
@@ -283,6 +352,18 @@ export async function projectRoutes(app: FastifyInstance) {
       }
 
       await removeProjectMember(projectId, memberId);
+
+      await logActivity({
+        entityType: 'project',
+        entityId: projectId,
+        entityName: project.name,
+        action: 'remove_member',
+        userId,
+        orgId: project.orgId,
+        projectId,
+        metadata: { removedMemberId: memberId },
+      });
+
       return reply.status(204).send();
     }
   );
@@ -360,6 +441,21 @@ export async function projectRoutes(app: FastifyInstance) {
         parsed.data.isWritable
       );
 
+      await logActivity({
+        entityType: 'project',
+        entityId: projectId,
+        entityName: project.name,
+        action: 'add_resource',
+        userId,
+        orgId: project.orgId,
+        projectId,
+        metadata: {
+          resourceType: parsed.data.resourceType,
+          resourceId: parsed.data.resourceId,
+          isWritable: parsed.data.isWritable,
+        },
+      });
+
       return reply.status(201).send({ success: true });
     }
   );
@@ -386,6 +482,18 @@ export async function projectRoutes(app: FastifyInstance) {
       }
 
       await removeProjectResource(projectId, resourceId);
+
+      await logActivity({
+        entityType: 'project',
+        entityId: projectId,
+        entityName: project.name,
+        action: 'remove_resource',
+        userId,
+        orgId: project.orgId,
+        projectId,
+        metadata: { resourceId },
+      });
+
       return reply.status(204).send();
     }
   );

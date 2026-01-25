@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { orgsApi } from '../api';
 import { useOrgStore } from '../stores/org';
+import { formatOrgRole } from '../utils/formatters';
 
 export function OrgSwitcher() {
   const [isOpen, setIsOpen] = useState(false);
@@ -53,7 +54,7 @@ export function OrgSwitcher() {
                   }`}
                 >
                   <div className="font-medium">{org.name}</div>
-                  <div className="text-xs text-gray-500">{org.role}</div>
+                  <div className="text-xs text-gray-500">{formatOrgRole(org.role)}</div>
                 </button>
               ))}
               {orgs.length === 0 && (
