@@ -1,6 +1,6 @@
 import { eq, and, sql, desc, inArray, isNull } from 'drizzle-orm';
 import { db, termBases, terms, users, projectResources, projects } from '../db/index.js';
-import type { TermBase, Term, TermMatch } from '@memoq/shared';
+import type { TermBase, Term, TermMatch } from '@oxy/shared';
 
 export interface TermBaseWithCreator extends TermBase {
   createdByName: string | null;

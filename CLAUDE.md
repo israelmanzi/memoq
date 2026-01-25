@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MemoQ Clone - A translation management system (TMS) and computer-assisted translation (CAT) tool with multi-user support, translation memory, terminology management, and role-based workflows.
+OXY - A translation management system (TMS) and computer-assisted translation (CAT) tool with multi-user support, translation memory, terminology management, and role-based workflows.
 
 ## Architecture
 
@@ -62,13 +62,51 @@ Documents are assigned per-role; only the user assigned to the current workflow 
 | XLIFF parsing | `xliff` |
 | TMX/XML parsing | `fast-xml-parser` |
 | Translation editor | CodeMirror 6 |
+| Email service | `resend` |
+| TOTP/MFA | `otpauth` |
+| QR codes | `qrcode` |
+| Password hashing | `argon2` |
+
+## Authentication
+
+- **Email verification required** - Users must verify email before logging in
+- **MFA mandatory** - All users must set up TOTP-based 2FA on first login
+- **Backup codes** - 8 one-time recovery codes generated on MFA setup
+- **Password reset** - Email-based token flow (1 hour expiry)
+
+Auth flow:
+1. Register → verification email sent
+2. Click verification link → email verified
+3. Login with email/password → MFA setup required (first time) or MFA code required
+4. Complete MFA → receive JWT token
 
 ## API
 
 Base URL: `/api/v1`
 
-Key routes: `/auth`, `/organizations`, `/projects`, `/documents`, `/segments`, `/translation-memories`, `/term-bases`
+Key routes: `/auth`, `/organizations`, `/projects`, `/documents`, `/segments`, `/translation-memories`, `/term-bases`, `/mfa`
 
 ## Database
 
 PostgreSQL with schema in `apps/api/src/db/schema.sql`. Docker container managed via docker-compose.
+
+## Environment Variables
+
+Key variables in `.env`:
+
+```
+# Database
+DATABASE_URL=postgres://user:pass@localhost:5432/oxy
+
+# JWT
+JWT_SECRET=your-secret-key
+
+# Email (Resend)
+RESEND_API_KEY=re_xxxxxxxxxxxx
+EMAIL_FROM=OXY <noreply@yourdomain.com>
+
+# App
+APP_URL=http://localhost:5173
+```
+
+When `RESEND_API_KEY` is not set, email is disabled and users are auto-verified (dev mode).

@@ -17,7 +17,7 @@ import type {
   WorkflowStatus,
   SegmentStatus,
   ProjectRole,
-} from '@memoq/shared';
+} from '@oxy/shared';
 import { findMatches } from './tm.service.js';
 
 // ============ Projects ============

@@ -1,4 +1,4 @@
-import type { ActivityLogEntry } from '@memoq/shared';
+import type { ActivityLogEntry } from '@oxy/shared';
 
 interface ActivityFeedProps {
   activities: ActivityLogEntry[];

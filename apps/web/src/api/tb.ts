@@ -1,5 +1,7 @@
-import { api } from './client';
-import type { TermBase, Term, TermMatch } from '@memoq/shared';
+import { api, ApiError } from './client';
+import type { TermBase, Term, TermMatch } from '@oxy/shared';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
 
 export interface CreateTBInput {
   name: string;
@@ -29,6 +31,13 @@ export interface AddTermInput {
 export interface PaginationParams {
   limit?: number;
   offset?: number;
+}
+
+export interface TBXUploadResult {
+  imported: number;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  warnings: string[];
 }
 
 export const tbApi = {
@@ -61,6 +70,28 @@ export const tbApi = {
 
   addTermsBulk: (tbId: string, terms: AddTermInput[]) =>
     api.post<{ imported: number }>(`/tb/${tbId}/terms/bulk`, { terms }),
+
+  uploadTBX: async (tbId: string, file: File): Promise<TBXUploadResult> => {
+    const token = localStorage.getItem('token');
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE}/tb/${tbId}/upload`, {
+      method: 'POST',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new ApiError(response.status, data);
+    }
+
+    return data;
+  },
 
   updateTerm: (tbId: string, termId: string, data: Partial<AddTermInput>) =>
     api.patch<Term>(`/tb/${tbId}/terms/${termId}`, data),

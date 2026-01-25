@@ -1,4 +1,4 @@
-import type { TermMatch } from '@memoq/shared';
+import type { TermMatch } from '@oxy/shared';
 
 interface HighlightedTextProps {
   text: string;

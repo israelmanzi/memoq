@@ -45,6 +45,20 @@ export function DeleteConfirmModal({
     }
   }, [isOpen]);
 
+  // Escape key handler
+  useEffect(() => {
+    if (!isOpen || isDeleting) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen, isDeleting, onClose]);
+
   if (!isOpen) return null;
 
   const canConfirm =

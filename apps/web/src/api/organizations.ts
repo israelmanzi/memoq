@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { Organization, OrgRole } from '@memoq/shared';
+import type { Organization, OrgRole } from '@oxy/shared';
 
 export interface CreateOrgInput {
   name: string;

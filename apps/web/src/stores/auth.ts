@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AuthUser } from '@memoq/shared';
+import type { AuthUser } from '@oxy/shared';
 
 interface AuthState {
   user: AuthUser | null;

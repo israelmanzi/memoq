@@ -1,4 +1,4 @@
-# MemoQ Clone - Technical Specification
+# OXY - Technical Specification
 
 ## Overview
 
@@ -8,9 +8,9 @@ A translation management system (TMS) and computer-assisted translation (CAT) to
 
 ## Reference Product Analysis
 
-### What is memoQ?
+### What is OXY?
 
-memoQ is a commercial translation management platform that provides:
+OXY is a commercial translation management platform that provides:
 
 - Translation Memory (TM) - Database storing source/target segment pairs
 - Term Base (TB) - Terminology management database

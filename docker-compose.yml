@@ -1,25 +1,29 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: memoq-postgres
+    container_name: oxy-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-memoq}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memoq_dev}
-      POSTGRES_DB: ${POSTGRES_DB:-memoq}
+      POSTGRES_USER: ${POSTGRES_USER:-oxy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oxy_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-oxy}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-memoq}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oxy}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      default:
+        aliases:
+          - postgres
 
   redis:
     image: redis:7-alpine
-    container_name: memoq-redis
+    container_name: oxy-redis
     restart: unless-stopped
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -30,7 +34,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      default:
+        aliases:
+          - redis
 
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  default:
+    driver: bridge
+    name: oxy-network

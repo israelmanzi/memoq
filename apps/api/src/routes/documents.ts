@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
 import { z } from 'zod';
-import { WORKFLOW_STATUSES, SEGMENT_STATUSES } from '@memoq/shared';
+import { WORKFLOW_STATUSES, SEGMENT_STATUSES } from '@oxy/shared';
 import {
   findProjectById,
   getProjectMembership,
@@ -27,6 +27,7 @@ import { findMatches, addTranslationUnit } from '../services/tm.service.js';
 import { findTermsInText } from '../services/tb.service.js';
 import { listProjectResources } from '../services/project.service.js';
 import { parseFile, detectFileType, getSupportedExtensions } from '../services/file-parser.service.js';
+import { exportDocument, getSupportedExportFormats, type ExportFormat } from '../services/file-exporter.service.js';
 import { logActivity } from '../services/activity.service.js';
 
 const createDocumentSchema = z.object({
@@ -330,6 +331,91 @@ export async function documentRoutes(app: FastifyInstance) {
       return reply.send({ ...doc, ...stats });
     }
   );
+
+  // Export document
+  app.get<{
+    Params: { documentId: string };
+    Querystring: { format?: string; bilingual?: string };
+  }>(
+    '/:documentId/export',
+    async (request, reply) => {
+      const { documentId } = request.params;
+      const { userId } = request.user;
+      const format = (request.query.format || 'xliff') as ExportFormat;
+
+      // Validate format
+      const supportedFormats = getSupportedExportFormats();
+      if (!supportedFormats.includes(format)) {
+        return reply.status(400).send({
+          error: `Unsupported export format. Supported: ${supportedFormats.join(', ')}`,
+        });
+      }
+
+      const doc = await findDocumentById(documentId);
+      if (!doc) {
+        return reply.status(404).send({ error: 'Document not found' });
+      }
+
+      const project = await findProjectById(doc.projectId);
+      if (!project) {
+        return reply.status(404).send({ error: 'Project not found' });
+      }
+
+      const membership = await getMembership(project.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      // Get all segments
+      const segments = await listDocumentSegments(documentId);
+
+      // Export the document
+      const result = exportDocument(
+        {
+          filename: doc.name,
+          sourceLanguage: project.sourceLanguage,
+          targetLanguage: project.targetLanguage,
+          segments: segments.map((seg) => ({
+            sourceText: seg.sourceText,
+            targetText: seg.targetText,
+            status: seg.status ?? undefined,
+          })),
+          originalContent: doc.originalContent,
+          fileType: doc.fileType,
+        },
+        format
+      );
+
+      // Generate export filename
+      const baseName = doc.name.replace(/\.[^.]+$/, '');
+      const exportFilename = `${baseName}_translated.${result.extension}`;
+
+      // Log activity
+      await logActivity({
+        entityType: 'document',
+        entityId: documentId,
+        entityName: doc.name,
+        action: 'exported',
+        userId,
+        orgId: project.orgId,
+        projectId: project.id,
+        documentId,
+        metadata: { format, segmentCount: segments.length },
+      });
+
+      reply
+        .header('Content-Type', result.mimeType)
+        .header('Content-Disposition', `attachment; filename="${exportFilename}"`)
+        .send(result.content);
+    }
+  );
+
+  // Get supported export formats
+  app.get('/export-formats', async (_request, reply) => {
+    return reply.send({
+      formats: getSupportedExportFormats(),
+    });
+  });
 
   // Update document workflow status (manual override)
   app.patch<{ Params: { documentId: string } }>(

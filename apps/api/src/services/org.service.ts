@@ -1,6 +1,6 @@
 import { eq, and, count, desc } from 'drizzle-orm';
 import { db, organizations, orgMemberships, users } from '../db/index.js';
-import type { Organization, OrgMembership, OrgRole } from '@memoq/shared';
+import type { Organization, OrgMembership, OrgRole } from '@oxy/shared';
 
 export interface CreateOrgInput {
   name: string;

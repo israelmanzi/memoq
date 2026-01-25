@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { Project, Document, Segment, WorkflowType, ProjectStatus, WorkflowStatus, SegmentStatus, ProjectRole, TermMatch } from '@memoq/shared';
+import type { Project, Document, Segment, WorkflowType, ProjectStatus, WorkflowStatus, SegmentStatus, ProjectRole, TermMatch } from '@oxy/shared';
 
 export interface CreateProjectInput {
   name: string;
@@ -162,6 +162,51 @@ export const projectsApi = {
     api.patch<Document>(`/documents/${documentId}/status`, { status }),
 
   deleteDocument: (documentId: string) => api.delete(`/documents/${documentId}`),
+
+  exportDocument: async (documentId: string, format: 'txt' | 'xliff' = 'xliff'): Promise<void> => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(
+      `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/v1/documents/${documentId}/export?format=${format}`,
+      {
+        method: 'GET',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const error = new Error(data.error || 'Export failed') as any;
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
+    // Get filename from Content-Disposition header or generate one
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `document.${format}`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="([^"]+)"/);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+    }
+
+    // Download the file
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
+
+  getExportFormats: () =>
+    api.get<{ formats: string[] }>('/documents/export-formats'),
 
   // Segments
   listSegments: (documentId: string, includeMatches = false) =>

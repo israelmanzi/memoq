@@ -1,32 +1,22 @@
 import { useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { authApi, ApiError } from '../api';
-import { useAuthStore } from '../stores/auth';
 
-export function RegisterPage() {
-  const navigate = useNavigate();
-  const { setAuth } = useAuthStore();
-  const [name, setName] = useState('');
+export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
-  const registerMutation = useMutation({
-    mutationFn: () => authApi.register({ name, email, password }),
-    onSuccess: (data) => {
-      if (data.requiresEmailVerification) {
-        setSuccess(data.message);
-      } else if (data.user && data.token) {
-        setAuth(data.user, data.token);
-        navigate({ to: '/dashboard' });
-      }
+  const forgotMutation = useMutation({
+    mutationFn: () => authApi.forgotPassword(email),
+    onSuccess: () => {
+      setSuccess(true);
     },
     onError: (err) => {
       if (err instanceof ApiError) {
         const data = err.data as { error?: string };
-        setError(data.error ?? 'Registration failed');
+        setError(data.error ?? 'Request failed');
       } else {
         setError('An error occurred');
       }
@@ -36,11 +26,9 @@ export function RegisterPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setSuccess(null);
-    registerMutation.mutate();
+    forgotMutation.mutate();
   };
 
-  // Success state - show email verification message
   if (success) {
     return (
       <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
@@ -52,16 +40,7 @@ export function RegisterPage() {
           </div>
           <h2 className="text-2xl font-semibold text-gray-900 mb-2">Check your email</h2>
           <p className="text-gray-600 mb-6">
-            We've sent a verification link to <strong>{email}</strong>. Click the link to verify your account.
-          </p>
-          <p className="text-sm text-gray-500 mb-4">
-            Didn't receive the email? Check your spam folder or{' '}
-            <button
-              onClick={() => authApi.resendVerification(email)}
-              className="text-blue-600 hover:text-blue-700 font-medium"
-            >
-              resend verification email
-            </button>
+            If an account exists for <strong>{email}</strong>, we've sent a password reset link.
           </p>
           <Link to="/login" className="text-blue-600 hover:text-blue-700 font-medium">
             Back to login
@@ -73,7 +52,10 @@ export function RegisterPage() {
 
   return (
     <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-      <h2 className="text-2xl font-semibold text-gray-900 mb-6">Create account</h2>
+      <h2 className="text-2xl font-semibold text-gray-900 mb-2">Forgot password?</h2>
+      <p className="text-sm text-gray-600 mb-6">
+        Enter your email and we'll send you a link to reset your password.
+      </p>
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
@@ -82,20 +64,6 @@ export function RegisterPage() {
       )}
 
       <div className="space-y-4">
-        <div>
-          <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-            Name
-          </label>
-          <input
-            id="name"
-            type="text"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
             Email
@@ -110,33 +78,17 @@ export function RegisterPage() {
           />
         </div>
 
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            required
-            minLength={8}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          <p className="mt-1 text-xs text-gray-500">Minimum 8 characters</p>
-        </div>
-
         <button
           type="submit"
-          disabled={registerMutation.isPending}
+          disabled={forgotMutation.isPending}
           className="w-full py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
         >
-          {registerMutation.isPending ? 'Creating account...' : 'Create account'}
+          {forgotMutation.isPending ? 'Sending...' : 'Send reset link'}
         </button>
       </div>
 
       <p className="mt-6 text-center text-sm text-gray-600">
-        Already have an account?{' '}
+        Remember your password?{' '}
         <Link to="/login" className="text-blue-600 hover:text-blue-700 font-medium">
           Sign in
         </Link>

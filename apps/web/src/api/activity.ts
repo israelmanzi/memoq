@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { ActivityLogEntry } from '@memoq/shared';
+import type { ActivityLogEntry } from '@oxy/shared';
 
 export interface ActivityListResponse {
   items: ActivityLogEntry[];

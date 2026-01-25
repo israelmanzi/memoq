@@ -1,5 +1,7 @@
-import { api } from './client';
-import type { TranslationMemory, TranslationUnit, TMMatch } from '@memoq/shared';
+import { api, ApiError } from './client';
+import type { TranslationMemory, TranslationUnit, TMMatch } from '@oxy/shared';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
 
 export interface CreateTMInput {
   name: string;
@@ -34,6 +36,13 @@ export interface PaginationParams {
   offset?: number;
 }
 
+export interface TMXUploadResult {
+  imported: number;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  warnings: string[];
+}
+
 export const tmApi = {
   list: (orgId: string, options?: PaginationParams) => {
     const params = new URLSearchParams();
@@ -63,6 +72,28 @@ export const tmApi = {
     api.post<{ imported: number }>(`/tm/${tmId}/units/bulk`, { units }),
 
   deleteUnit: (tmId: string, unitId: string) => api.delete(`/tm/${tmId}/units/${unitId}`),
+
+  uploadTMX: async (tmId: string, file: File): Promise<TMXUploadResult> => {
+    const token = localStorage.getItem('token');
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE}/tm/${tmId}/upload`, {
+      method: 'POST',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new ApiError(response.status, data);
+    }
+
+    return data;
+  },
 
   // Matching
   findMatches: (orgId: string, sourceText: string, minMatchPercent = 50) =>

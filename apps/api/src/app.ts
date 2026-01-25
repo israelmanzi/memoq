@@ -12,6 +12,8 @@ import { projectRoutes } from './routes/projects.js';
 import { documentRoutes } from './routes/documents.js';
 import { tbRoutes } from './routes/tb.js';
 import { activityRoutes } from './routes/activity.js';
+import { searchRoutes } from './routes/search.js';
+import { mfaRoutes } from './routes/mfa.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -53,6 +55,8 @@ export async function buildApp() {
   await app.register(documentRoutes, { prefix: '/api/v1/documents' });
   await app.register(tbRoutes, { prefix: '/api/v1/tb' });
   await app.register(activityRoutes, { prefix: '/api/v1/activity' });
+  await app.register(searchRoutes, { prefix: '/api/v1/search' });
+  await app.register(mfaRoutes, { prefix: '/api/v1/mfa' });
 
   return app;
 }

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ORG_ROLES } from '@memoq/shared';
+import { ORG_ROLES } from '@oxy/shared';
 import {
   createOrg,
   findOrgById,

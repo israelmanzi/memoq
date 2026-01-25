@@ -1,4 +1,4 @@
-# MemoQ Clone - MVP Specification
+# OXY - MVP Specification
 
 ## Objective
 
@@ -86,7 +86,7 @@ Build a minimal translation management tool that demonstrates core CAT functiona
 
 ---
 
-## User Roles & Permissions (memoQ-inspired)
+## User Roles & Permissions (OXY-inspired)
 
 ### Role Hierarchy
 
@@ -826,7 +826,7 @@ function TranslationEditor({ sourceText, targetText, onTargetChange, readOnly }:
 ## Project Structure
 
 ```
-memoq-clone/
+oxy/
 ├── apps/
 │   ├── api/                          # Backend
 │   │   ├── src/

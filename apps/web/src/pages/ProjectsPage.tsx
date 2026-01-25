@@ -5,7 +5,7 @@ import { projectsApi } from '../api';
 import { useOrgStore } from '../stores/org';
 import { Pagination } from '../components/Pagination';
 import { formatProjectStatus, formatWorkflowType } from '../utils/formatters';
-import type { ProjectStatus } from '@memoq/shared';
+import type { ProjectStatus } from '@oxy/shared';
 
 const PAGE_SIZE = 10;
 

@@ -23,6 +23,11 @@ const envSchema = z.object({
   REDIS_URL: z.string().optional(),
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default('7d'),
+  // Email (Resend)
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default('OXY <noreply@resend.dev>'),
+  // App URL for email links
+  APP_URL: z.string().default('http://localhost:5173'),
 });
 
 const parsed = envSchema.safeParse(process.env);

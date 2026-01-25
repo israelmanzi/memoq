@@ -4,6 +4,9 @@ import { AuthLayout } from './components/layouts/AuthLayout';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { VerifyEmailPage } from './pages/VerifyEmailPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
@@ -11,6 +14,7 @@ import { DocumentPage } from './pages/DocumentPage';
 import { TMListPage } from './pages/TMListPage';
 import { TBListPage } from './pages/TBListPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SearchPage } from './pages/SearchPage';
 import { useAuthStore } from './stores/auth';
 
 // Root route
@@ -41,6 +45,30 @@ const registerRoute = createRoute({
   getParentRoute: () => authRoute,
   path: '/register',
   component: RegisterPage,
+});
+
+const verifyEmailRoute = createRoute({
+  getParentRoute: () => authRoute,
+  path: '/verify-email',
+  component: VerifyEmailPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    token: (search.token as string) || '',
+  }),
+});
+
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => authRoute,
+  path: '/forgot-password',
+  component: ForgotPasswordPage,
+});
+
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => authRoute,
+  path: '/reset-password',
+  component: ResetPasswordPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    token: (search.token as string) || '',
+  }),
 });
 
 // Protected routes
@@ -98,6 +126,15 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+const searchRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/search',
+  component: SearchPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: (search.q as string) || '',
+  }),
+});
+
 // Index redirect
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -111,7 +148,13 @@ const indexRoute = createRoute({
 // Build route tree
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  authRoute.addChildren([loginRoute, registerRoute]),
+  authRoute.addChildren([
+    loginRoute,
+    registerRoute,
+    verifyEmailRoute,
+    forgotPasswordRoute,
+    resetPasswordRoute,
+  ]),
   protectedRoute.addChildren([
     dashboardRoute,
     projectsRoute,
@@ -120,6 +163,7 @@ const routeTree = rootRoute.addChildren([
     tmRoute,
     tbRoute,
     settingsRoute,
+    searchRoute,
   ]),
 ]);
 

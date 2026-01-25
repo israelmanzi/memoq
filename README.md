@@ -1,4 +1,4 @@
-# MemoQ Clone
+# OXY
 
 A translation management system (TMS) and computer-assisted translation (CAT) tool.
 
@@ -29,7 +29,7 @@ A translation management system (TMS) and computer-assisted translation (CAT) to
 ```bash
 # Clone and install
 git clone <repo-url>
-cd memoq
+cd oxy
 pnpm install
 
 # Configure environment
@@ -51,7 +51,7 @@ The API runs on http://localhost:3000 and the frontend on http://localhost:5173.
 ## Project Structure
 
 ```
-memoq/
+oxy/
 ├── apps/
 │   ├── api/          # Fastify backend
 │   └── web/          # React frontend

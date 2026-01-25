@@ -1,11 +1,11 @@
 {
-  "name": "memoq",
+  "name": "oxy",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "pnpm -r --parallel dev",
-    "dev:api": "pnpm --filter @memoq/api dev",
-    "dev:web": "pnpm --filter @memoq/web dev",
+    "dev:api": "pnpm --filter @oxy/api dev",
+    "dev:web": "pnpm --filter @oxy/web dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
@@ -14,8 +14,8 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f",
-    "db:migrate": "pnpm --filter @memoq/api db:migrate",
-    "db:seed": "pnpm --filter @memoq/api db:seed",
+    "db:migrate": "pnpm --filter @oxy/api db:migrate",
+    "db:seed": "pnpm --filter @oxy/api db:seed",
     "clean": "pnpm -r clean && rm -rf node_modules"
   },
   "devDependencies": {

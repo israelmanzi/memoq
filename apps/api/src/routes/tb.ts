@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { MultipartFile } from '@fastify/multipart';
 import { z } from 'zod';
 import {
   createTB,
@@ -18,6 +19,7 @@ import {
 } from '../services/tb.service.js';
 import { getMembership } from '../services/org.service.js';
 import { logActivity } from '../services/activity.service.js';
+import { parseTBX } from '../services/tmx-tbx-parser.service.js';
 
 const createTBSchema = z.object({
   name: z.string().min(1).max(200),
@@ -335,6 +337,86 @@ export async function tbRoutes(app: FastifyInstance) {
       } catch (error) {
         request.log.error({ err: error }, 'Failed to bulk import terms');
         return reply.status(500).send({ error: 'Failed to import terms' });
+      }
+    }
+  );
+
+  // Upload TBX file
+  app.post<{ Params: { tbId: string } }>(
+    '/:tbId/upload',
+    async (request, reply) => {
+      const { tbId } = request.params;
+      const { userId } = request.user;
+
+      const tb = await findTBById(tbId);
+      if (!tb) {
+        return reply.status(404).send({ error: 'Term base not found' });
+      }
+
+      const membership = await getMembership(tb.orgId, userId);
+      if (!membership || !['admin', 'project_manager'].includes(membership.role)) {
+        return reply.status(403).send({ error: 'Only admins and project managers can upload TBX files' });
+      }
+
+      let file: MultipartFile | undefined;
+      try {
+        file = await request.file();
+      } catch (err) {
+        return reply.status(400).send({ error: 'No file uploaded' });
+      }
+
+      if (!file) {
+        return reply.status(400).send({ error: 'No file uploaded' });
+      }
+
+      const filename = file.filename.toLowerCase();
+      if (!filename.endsWith('.tbx')) {
+        return reply.status(400).send({ error: 'Invalid file type. Only .tbx files are supported' });
+      }
+
+      try {
+        const buffer = await file.toBuffer();
+        const parseResult = parseTBX(buffer, {
+          expectedSourceLanguage: tb.sourceLanguage,
+          expectedTargetLanguage: tb.targetLanguage,
+        });
+
+        if (parseResult.terms.length === 0) {
+          return reply.status(400).send({
+            error: 'No terms found in the TBX file',
+            warnings: parseResult.warnings,
+          });
+        }
+
+        // Import terms using bulk import
+        const imported = await addTermsBulk(tbId, parseResult.terms, userId);
+
+        await logActivity({
+          entityType: 'tb',
+          entityId: tbId,
+          entityName: tb.name,
+          action: 'upload',
+          userId,
+          orgId: tb.orgId,
+          metadata: {
+            filename: file.filename,
+            importedCount: imported,
+            sourceLanguage: parseResult.sourceLanguage,
+            targetLanguage: parseResult.targetLanguage,
+          },
+        });
+
+        return reply.send({
+          imported,
+          sourceLanguage: parseResult.sourceLanguage,
+          targetLanguage: parseResult.targetLanguage,
+          warnings: parseResult.warnings,
+        });
+      } catch (error: any) {
+        request.log.error({ err: error }, 'Failed to parse TBX file');
+        return reply.status(400).send({
+          error: error.message || 'Failed to parse TBX file',
+        });
       }
     }
   );

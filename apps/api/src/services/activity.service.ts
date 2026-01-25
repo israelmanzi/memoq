@@ -10,6 +10,7 @@ export type ActionType =
   | 'review'
   | 'confirm'
   | 'upload'
+  | 'exported'
   | 'add_member'
   | 'remove_member'
   | 'add_resource'
@@ -201,6 +202,8 @@ export function formatActivityMessage(activity: ActivityLogEntry): string {
       return `confirmed segment`;
     case 'upload':
       return `uploaded document "${name}"`;
+    case 'exported':
+      return `exported document "${name}"`;
     case 'add_member':
       return `added member to ${entityType}`;
     case 'remove_member':

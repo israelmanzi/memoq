@@ -33,6 +33,17 @@ export const users = pgTable('users', {
   email: text('email').unique().notNull(),
   passwordHash: text('password_hash').notNull(),
   name: text('name').notNull(),
+  // Email verification
+  emailVerified: boolean('email_verified').default(false).notNull(),
+  emailVerificationToken: text('email_verification_token'),
+  emailVerificationExpires: timestamp('email_verification_expires', { withTimezone: true }),
+  // Password reset
+  passwordResetToken: text('password_reset_token'),
+  passwordResetExpires: timestamp('password_reset_expires', { withTimezone: true }),
+  // MFA
+  mfaEnabled: boolean('mfa_enabled').default(false).notNull(),
+  mfaSecret: text('mfa_secret'),
+  mfaBackupCodes: jsonb('mfa_backup_codes').$type<string[]>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

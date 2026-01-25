@@ -2,7 +2,7 @@ import { eq, and, sql, inArray, desc, isNull } from 'drizzle-orm';
 import { db, translationMemories, translationUnits, users, projectResources, projects } from '../db/index.js';
 import { distance } from 'fastest-levenshtein';
 import { createHash } from 'crypto';
-import type { TranslationMemory, TranslationUnit, TMMatch } from '@memoq/shared';
+import type { TranslationMemory, TranslationUnit, TMMatch } from '@oxy/shared';
 
 export interface TranslationMemoryWithCreator extends TranslationMemory {
   createdByName: string | null;

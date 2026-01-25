@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { WORKFLOW_TYPES, PROJECT_STATUSES, PROJECT_ROLES } from '@memoq/shared';
+import { WORKFLOW_TYPES, PROJECT_STATUSES, PROJECT_ROLES } from '@oxy/shared';
 import {
   createProject,
   findProjectById,

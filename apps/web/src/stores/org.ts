@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Organization, OrgRole } from '@memoq/shared';
+import type { Organization, OrgRole } from '@oxy/shared';
 
 interface OrgState {
   currentOrg: (Organization & { role: OrgRole }) | null;
