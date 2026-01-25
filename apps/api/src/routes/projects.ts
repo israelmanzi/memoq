@@ -18,6 +18,7 @@ import {
 } from '../services/project.service.js';
 import { getMembership } from '../services/org.service.js';
 import { findTMById } from '../services/tm.service.js';
+import { findTBById } from '../services/tb.service.js';
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(200),
@@ -343,8 +344,12 @@ export async function projectRoutes(app: FastifyInstance) {
         if (!tm || tm.orgId !== project.orgId) {
           return reply.status(400).send({ error: 'TM not found or belongs to another organization' });
         }
+      } else if (parsed.data.resourceType === 'tb') {
+        const tb = await findTBById(parsed.data.resourceId);
+        if (!tb || tb.orgId !== project.orgId) {
+          return reply.status(400).send({ error: 'TB not found or belongs to another organization' });
+        }
       }
-      // TODO: Add TB validation when TB service is created
 
       await addProjectResource(
         projectId,

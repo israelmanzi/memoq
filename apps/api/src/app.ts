@@ -10,6 +10,7 @@ import { orgRoutes } from './routes/organizations.js';
 import { tmRoutes } from './routes/tm.js';
 import { projectRoutes } from './routes/projects.js';
 import { documentRoutes } from './routes/documents.js';
+import { tbRoutes } from './routes/tb.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -49,6 +50,7 @@ export async function buildApp() {
   await app.register(tmRoutes, { prefix: '/api/v1/tm' });
   await app.register(projectRoutes, { prefix: '/api/v1/projects' });
   await app.register(documentRoutes, { prefix: '/api/v1/documents' });
+  await app.register(tbRoutes, { prefix: '/api/v1/tb' });
 
   return app;
 }
