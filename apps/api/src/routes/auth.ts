@@ -34,6 +34,15 @@ import {
   enableMFA,
 } from '../services/auth.service.js';
 import { sendMFAEnabledEmail } from '../services/email.service.js';
+import { acceptAllPendingInvitations } from '../services/invitation.service.js';
+import {
+  createSession,
+  generateTokenId,
+  invalidateSession,
+  invalidateAllUserSessions,
+  listUserSessions,
+} from '../services/session.service.js';
+import { isRedisEnabled } from '../services/redis.service.js';
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -103,13 +112,29 @@ export async function authRoutes(app: FastifyInstance) {
 
       // If email is not enabled, auto-verify and return token (dev mode)
       await setEmailVerified(user.id);
+
+      // Accept any pending invitations for this user
+      const invResult = await acceptAllPendingInvitations(user.id, email);
+
       const authUser = await getUserWithOrgs(user.id);
-      const authToken = app.jwt.sign({ userId: user.id });
+
+      // Generate token with session tracking
+      const tokenId = generateTokenId();
+      const authToken = app.jwt.sign({ userId: user.id, tokenId });
+
+      // Create session in Redis if enabled
+      if (isRedisEnabled()) {
+        await createSession(user.id, tokenId, {
+          userAgent: request.headers['user-agent'],
+          ip: request.ip,
+        });
+      }
 
       return reply.status(201).send({
         user: authUser,
         token: authToken,
         message: 'Registration successful. Email verification skipped (email not configured).',
+        invitationsAccepted: invResult.accepted,
       });
     } catch (error) {
       request.log.error({ err: error }, 'Failed to create user');
@@ -200,7 +225,18 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const authUser = await getUserWithOrgs(user.id);
-    const token = app.jwt.sign({ userId: user.id });
+
+    // Generate token with session tracking
+    const tokenId = generateTokenId();
+    const token = app.jwt.sign({ userId: user.id, tokenId });
+
+    // Create session in Redis if enabled
+    if (isRedisEnabled()) {
+      await createSession(user.id, tokenId, {
+        userAgent: request.headers['user-agent'],
+        ip: request.ip,
+      });
+    }
 
     return reply.send({
       user: authUser,
@@ -259,7 +295,18 @@ export async function authRoutes(app: FastifyInstance) {
       }
 
       const authUser = await getUserWithOrgs(userById.id);
-      const token = app.jwt.sign({ userId: userById.id });
+
+      // Generate token with session tracking
+      const tokenId = generateTokenId();
+      const token = app.jwt.sign({ userId: userById.id, tokenId });
+
+      // Create session in Redis if enabled
+      if (isRedisEnabled()) {
+        await createSession(userById.id, tokenId, {
+          userAgent: request.headers['user-agent'],
+          ip: request.ip,
+        });
+      }
 
       return reply.send({
         user: authUser,
@@ -288,7 +335,20 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: result.error });
     }
 
-    return reply.send({ message: 'Email verified successfully' });
+    // Accept any pending invitations for this user
+    let invitationsAccepted = 0;
+    if (result.userId) {
+      const user = await findUserByIdWithAuth(result.userId);
+      if (user) {
+        const invResult = await acceptAllPendingInvitations(result.userId, user.email);
+        invitationsAccepted = invResult.accepted;
+      }
+    }
+
+    return reply.send({
+      message: 'Email verified successfully',
+      invitationsAccepted,
+    });
   });
 
   // Resend verification email
@@ -495,7 +555,18 @@ export async function authRoutes(app: FastifyInstance) {
 
       // Now log the user in
       const authUser = await getUserWithOrgs(decoded.userId);
-      const token = app.jwt.sign({ userId: decoded.userId });
+
+      // Generate token with session tracking
+      const tokenId = generateTokenId();
+      const token = app.jwt.sign({ userId: decoded.userId, tokenId });
+
+      // Create session in Redis if enabled
+      if (isRedisEnabled()) {
+        await createSession(decoded.userId, tokenId, {
+          userAgent: request.headers['user-agent'],
+          ip: request.ip,
+        });
+      }
 
       return reply.send({
         message: 'MFA enabled successfully',
@@ -506,5 +577,86 @@ export async function authRoutes(app: FastifyInstance) {
     } catch {
       return reply.status(401).send({ error: 'Invalid or expired setup token' });
     }
+  });
+
+  // ============ Session Management ============
+
+  // Logout current session
+  app.post('/logout', {
+    onRequest: [app.authenticate],
+  }, async (request, reply) => {
+    const { tokenId } = request.user;
+
+    if (tokenId && isRedisEnabled()) {
+      await invalidateSession(tokenId);
+    }
+
+    return reply.send({ message: 'Logged out successfully' });
+  });
+
+  // Logout all sessions
+  app.post('/logout-all', {
+    onRequest: [app.authenticate],
+  }, async (request, reply) => {
+    const { userId } = request.user;
+
+    let count = 0;
+    if (isRedisEnabled()) {
+      count = await invalidateAllUserSessions(userId);
+    }
+
+    return reply.send({
+      message: 'All sessions logged out',
+      sessionsInvalidated: count,
+    });
+  });
+
+  // List active sessions
+  app.get('/sessions', {
+    onRequest: [app.authenticate],
+  }, async (request, reply) => {
+    const { userId, tokenId } = request.user;
+
+    if (!isRedisEnabled()) {
+      return reply.send({
+        sessions: [],
+        message: 'Session tracking not enabled',
+      });
+    }
+
+    const sessions = await listUserSessions(userId);
+
+    // Mark the current session
+    const sessionsWithCurrent = sessions.map((session) => ({
+      id: session.tokenId,
+      userAgent: session.userAgent,
+      ip: session.ip,
+      createdAt: new Date(session.createdAt).toISOString(),
+      lastActiveAt: new Date(session.lastActiveAt).toISOString(),
+      isCurrent: session.tokenId === tokenId,
+    }));
+
+    return reply.send({ sessions: sessionsWithCurrent });
+  });
+
+  // Revoke a specific session
+  app.delete<{ Params: { sessionId: string } }>('/sessions/:sessionId', {
+    onRequest: [app.authenticate],
+  }, async (request, reply) => {
+    const { sessionId } = request.params;
+    const { tokenId } = request.user;
+
+    if (!isRedisEnabled()) {
+      return reply.status(400).send({ error: 'Session tracking not enabled' });
+    }
+
+    // Prevent revoking current session via this route
+    if (sessionId === tokenId) {
+      return reply.status(400).send({ error: 'Use /logout to end current session' });
+    }
+
+    await invalidateSession(sessionId);
+
+    return reply.send({ message: 'Session revoked' });
   });
 }
