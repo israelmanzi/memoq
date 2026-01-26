@@ -1,6 +1,14 @@
 import { eq, and, sql, desc, inArray, isNull } from 'drizzle-orm';
 import { db, termBases, terms, users, projectResources, projects } from '../db/index.js';
 import type { TermBase, Term, TermMatch } from '@oxy/shared';
+import {
+  withCache,
+  invalidateCacheByTag,
+  cacheKeys,
+  cacheTags,
+  hashKey,
+} from './cache.service.js';
+import { env } from '../config/env.js';
 
 export interface TermBaseWithCreator extends TermBase {
   createdByName: string | null;
@@ -141,6 +149,9 @@ export async function deleteTB(id: string, deletedBy: string): Promise<void> {
         eq(projectResources.resourceType, 'tb')
       )
     );
+
+  // Invalidate all cached data for this TB
+  await invalidateCacheByTag(cacheTags.tb(id));
 }
 
 export async function updateTB(
@@ -238,6 +249,9 @@ export async function addTerm(input: AddTermInput): Promise<Term> {
     throw new Error('Failed to add term');
   }
 
+  // Invalidate cache for this TB
+  await invalidateCacheByTag(cacheTags.tb(input.tbId));
+
   return term as Term;
 }
 
@@ -251,7 +265,18 @@ export async function getTerm(id: string): Promise<Term | null> {
 }
 
 export async function deleteTerm(id: string): Promise<void> {
+  // Get the term first to know which TB to invalidate
+  const [term] = await db
+    .select({ tbId: terms.tbId })
+    .from(terms)
+    .where(eq(terms.id, id));
+
   await db.delete(terms).where(eq(terms.id, id));
+
+  // Invalidate cache for the TB
+  if (term) {
+    await invalidateCacheByTag(cacheTags.tb(term.tbId));
+  }
 }
 
 export async function updateTerm(
@@ -263,6 +288,11 @@ export async function updateTerm(
     .set(data)
     .where(eq(terms.id, id))
     .returning();
+
+  // Invalidate cache for the TB
+  if (term) {
+    await invalidateCacheByTag(cacheTags.tb(term.tbId));
+  }
 
   return term ?? null;
 }
@@ -314,58 +344,71 @@ export async function findTermsInText(options: FindTermsOptions): Promise<TermMa
     return [];
   }
 
-  // Get all terms from the specified TBs
-  const allTerms = await db
-    .select()
-    .from(terms)
-    .where(inArray(terms.tbId, tbIds));
+  // Generate cache key
+  const textHash = hashKey(text.toLowerCase());
+  const cacheKey = cacheKeys.tbMatch(tbIds, textHash);
 
-  const matches: TermMatch[] = [];
-  const textLower = text.toLowerCase();
+  return withCache(
+    cacheKey,
+    async () => {
+      // Get all terms from the specified TBs
+      const allTerms = await db
+        .select()
+        .from(terms)
+        .where(inArray(terms.tbId, tbIds));
 
-  for (const term of allTerms) {
-    const sourceLower = term.sourceTerm.toLowerCase();
-    let startIndex = 0;
-    let position = textLower.indexOf(sourceLower, startIndex);
+      const matches: TermMatch[] = [];
+      const textLower = text.toLowerCase();
 
-    while (position !== -1) {
-      // Check word boundaries to avoid partial matches
-      const beforeChar = position > 0 ? textLower[position - 1] ?? ' ' : ' ';
-      const afterChar =
-        position + sourceLower.length < textLower.length
-          ? textLower[position + sourceLower.length] ?? ' '
-          : ' ';
+      for (const term of allTerms) {
+        const sourceLower = term.sourceTerm.toLowerCase();
+        let startIndex = 0;
+        let position = textLower.indexOf(sourceLower, startIndex);
 
-      const isWordBoundaryBefore = !/[a-zA-Z0-9]/.test(beforeChar);
-      const isWordBoundaryAfter = !/[a-zA-Z0-9]/.test(afterChar);
+        while (position !== -1) {
+          // Check word boundaries to avoid partial matches
+          const beforeChar = position > 0 ? textLower[position - 1] ?? ' ' : ' ';
+          const afterChar =
+            position + sourceLower.length < textLower.length
+              ? textLower[position + sourceLower.length] ?? ' '
+              : ' ';
 
-      if (isWordBoundaryBefore && isWordBoundaryAfter) {
-        matches.push({
-          id: term.id,
-          sourceTerm: term.sourceTerm,
-          targetTerm: term.targetTerm,
-          position: {
-            start: position,
-            end: position + term.sourceTerm.length,
-          },
-        });
+          const isWordBoundaryBefore = !/[a-zA-Z0-9]/.test(beforeChar);
+          const isWordBoundaryAfter = !/[a-zA-Z0-9]/.test(afterChar);
+
+          if (isWordBoundaryBefore && isWordBoundaryAfter) {
+            matches.push({
+              id: term.id,
+              sourceTerm: term.sourceTerm,
+              targetTerm: term.targetTerm,
+              position: {
+                start: position,
+                end: position + term.sourceTerm.length,
+              },
+            });
+          }
+
+          startIndex = position + 1;
+          position = textLower.indexOf(sourceLower, startIndex);
+        }
       }
 
-      startIndex = position + 1;
-      position = textLower.indexOf(sourceLower, startIndex);
+      // Sort by position and remove duplicates (same term at same position)
+      const seen = new Set<string>();
+      return matches
+        .sort((a, b) => a.position.start - b.position.start)
+        .filter((match) => {
+          const key = `${match.id}-${match.position.start}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+    },
+    {
+      ttl: env.CACHE_TB_MATCH_TTL,
+      tags: tbIds.map(cacheTags.tb),
     }
-  }
-
-  // Sort by position and remove duplicates (same term at same position)
-  const seen = new Set<string>();
-  return matches
-    .sort((a, b) => a.position.start - b.position.start)
-    .filter((match) => {
-      const key = `${match.id}-${match.position.start}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  );
 }
 
 // ============ Bulk Operations ============
@@ -400,12 +443,23 @@ export async function addTermsBulk(
 export async function getTBStats(tbId: string): Promise<{
   termCount: number;
 }> {
-  const [countResult] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(terms)
-    .where(eq(terms.tbId, tbId));
+  const cacheKey = cacheKeys.tbStats(tbId);
 
-  return {
-    termCount: countResult?.count ?? 0,
-  };
+  return withCache(
+    cacheKey,
+    async () => {
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(terms)
+        .where(eq(terms.tbId, tbId));
+
+      return {
+        termCount: countResult?.count ?? 0,
+      };
+    },
+    {
+      ttl: 300, // 5 minute TTL for stats
+      tags: [cacheTags.tb(tbId)],
+    }
+  );
 }

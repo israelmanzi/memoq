@@ -3,6 +3,14 @@ import { db, translationMemories, translationUnits, users, projectResources, pro
 import { distance } from 'fastest-levenshtein';
 import { createHash } from 'crypto';
 import type { TranslationMemory, TranslationUnit, TMMatch } from '@oxy/shared';
+import {
+  withCache,
+  invalidateCacheByTag,
+  cacheKeys,
+  cacheTags,
+  hashKey,
+} from './cache.service.js';
+import { env } from '../config/env.js';
 
 export interface TranslationMemoryWithCreator extends TranslationMemory {
   createdByName: string | null;
@@ -144,6 +152,9 @@ export async function deleteTM(id: string, deletedBy: string): Promise<void> {
         eq(projectResources.resourceType, 'tm')
       )
     );
+
+  // Invalidate all cached data for this TM
+  await invalidateCacheByTag(cacheTags.tm(id));
 }
 
 export async function updateTM(
@@ -227,6 +238,9 @@ export async function addTranslationUnit(
     throw new Error('Failed to add translation unit');
   }
 
+  // Invalidate cache for this TM
+  await invalidateCacheByTag(cacheTags.tm(input.tmId));
+
   return unit as TranslationUnit;
 }
 
@@ -241,7 +255,18 @@ export async function getTranslationUnit(id: string): Promise<TranslationUnit | 
 }
 
 export async function deleteTranslationUnit(id: string): Promise<void> {
+  // Get the unit first to know which TM to invalidate
+  const [unit] = await db
+    .select({ tmId: translationUnits.tmId })
+    .from(translationUnits)
+    .where(eq(translationUnits.id, id));
+
   await db.delete(translationUnits).where(eq(translationUnits.id, id));
+
+  // Invalidate cache for the TM
+  if (unit) {
+    await invalidateCacheByTag(cacheTags.tm(unit.tmId));
+  }
 }
 
 export async function listTMUnits(
@@ -293,60 +318,194 @@ export async function findMatches(options: FuzzyMatchOptions): Promise<TMMatch[]
     return [];
   }
 
-  // Get all units from the specified TMs
-  const units = await db
-    .select()
-    .from(translationUnits)
-    .where(inArray(translationUnits.tmId, tmIds));
-
-  const normalizedSource = sourceText.toLowerCase().trim();
+  // Generate cache key
   const sourceHash = hashSource(sourceText);
+  const cacheKey = cacheKeys.tmFuzzyMatch(tmIds, sourceHash, minMatchPercent);
 
-  const matches: TMMatch[] = [];
+  // Use cached computation
+  return withCache(
+    cacheKey,
+    async () => {
+      // Get all units from the specified TMs
+      const units = await db
+        .select()
+        .from(translationUnits)
+        .where(inArray(translationUnits.tmId, tmIds));
 
-  for (const unit of units) {
-    // Check for exact match first
-    if (unit.sourceHash === sourceHash) {
-      const isContextMatch =
-        contextPrev !== undefined &&
-        contextNext !== undefined &&
-        unit.contextPrev === contextPrev &&
-        unit.contextNext === contextNext;
+      const normalizedSource = sourceText.toLowerCase().trim();
 
-      matches.push({
-        id: unit.id,
-        sourceText: unit.sourceText,
-        targetText: unit.targetText,
-        matchPercent: 100,
-        isContextMatch,
-      });
-      continue;
+      const matches: TMMatch[] = [];
+
+      for (const unit of units) {
+        // Check for exact match first
+        if (unit.sourceHash === sourceHash) {
+          const isContextMatch =
+            contextPrev !== undefined &&
+            contextNext !== undefined &&
+            unit.contextPrev === contextPrev &&
+            unit.contextNext === contextNext;
+
+          matches.push({
+            id: unit.id,
+            sourceText: unit.sourceText,
+            targetText: unit.targetText,
+            matchPercent: 100,
+            isContextMatch,
+          });
+          continue;
+        }
+
+        // Calculate fuzzy match percentage using Levenshtein distance
+        const normalizedUnitSource = unit.sourceText.toLowerCase().trim();
+        const maxLen = Math.max(normalizedSource.length, normalizedUnitSource.length);
+
+        if (maxLen === 0) continue;
+
+        const dist = distance(normalizedSource, normalizedUnitSource);
+        const matchPercent = Math.round(((maxLen - dist) / maxLen) * 100);
+
+        if (matchPercent >= minMatchPercent) {
+          matches.push({
+            id: unit.id,
+            sourceText: unit.sourceText,
+            targetText: unit.targetText,
+            matchPercent,
+            isContextMatch: false,
+          });
+        }
+      }
+
+      // Sort by match percentage (descending) and limit results
+      return matches
+        .sort((a, b) => b.matchPercent - a.matchPercent)
+        .slice(0, maxResults);
+    },
+    {
+      ttl: env.CACHE_TM_MATCH_TTL,
+      tags: tmIds.map(cacheTags.tm),
     }
+  );
+}
 
-    // Calculate fuzzy match percentage using Levenshtein distance
-    const normalizedUnitSource = unit.sourceText.toLowerCase().trim();
-    const maxLen = Math.max(normalizedSource.length, normalizedUnitSource.length);
+// ============ Concordance Search ============
 
-    if (maxLen === 0) continue;
+export interface ConcordanceSearchOptions {
+  tmIds: string[];
+  query: string;
+  searchIn?: 'source' | 'target' | 'both';
+  caseSensitive?: boolean;
+  maxResults?: number;
+}
 
-    const dist = distance(normalizedSource, normalizedUnitSource);
-    const matchPercent = Math.round(((maxLen - dist) / maxLen) * 100);
+export interface ConcordanceMatch {
+  id: string;
+  tmId: string;
+  tmName?: string;
+  sourceText: string;
+  targetText: string;
+  matchedIn: 'source' | 'target' | 'both';
+  highlightPositions: {
+    source: Array<{ start: number; end: number }>;
+    target: Array<{ start: number; end: number }>;
+  };
+}
 
-    if (matchPercent >= minMatchPercent) {
-      matches.push({
-        id: unit.id,
-        sourceText: unit.sourceText,
-        targetText: unit.targetText,
-        matchPercent,
-        isContextMatch: false,
-      });
-    }
+/**
+ * Concordance search - find TM entries containing a specific word/phrase
+ * Unlike fuzzy matching, this searches for substrings within TM entries
+ */
+export async function concordanceSearch(
+  options: ConcordanceSearchOptions
+): Promise<ConcordanceMatch[]> {
+  const {
+    tmIds,
+    query,
+    searchIn = 'both',
+    caseSensitive = false,
+    maxResults = 50,
+  } = options;
+
+  if (tmIds.length === 0 || !query.trim()) {
+    return [];
   }
 
-  // Sort by match percentage (descending) and limit results
-  return matches
-    .sort((a, b) => b.matchPercent - a.matchPercent)
-    .slice(0, maxResults);
+  // Generate cache key
+  const queryHash = hashKey(query.toLowerCase().trim());
+  const cacheKey = cacheKeys.tmConcordance(tmIds, queryHash, searchIn);
+
+  return withCache(
+    cacheKey,
+    async () => {
+      const searchQuery = caseSensitive ? query.trim() : query.trim().toLowerCase();
+
+      // Get all units from the specified TMs with TM names
+      const units = await db
+        .select({
+          id: translationUnits.id,
+          tmId: translationUnits.tmId,
+          sourceText: translationUnits.sourceText,
+          targetText: translationUnits.targetText,
+          tmName: translationMemories.name,
+        })
+        .from(translationUnits)
+        .innerJoin(translationMemories, eq(translationUnits.tmId, translationMemories.id))
+        .where(inArray(translationUnits.tmId, tmIds));
+
+      const matches: ConcordanceMatch[] = [];
+
+      for (const unit of units) {
+        const sourceToSearch = caseSensitive ? unit.sourceText : unit.sourceText.toLowerCase();
+        const targetToSearch = caseSensitive ? unit.targetText : unit.targetText.toLowerCase();
+
+        const sourceContains = searchIn !== 'target' && sourceToSearch.includes(searchQuery);
+        const targetContains = searchIn !== 'source' && targetToSearch.includes(searchQuery);
+
+        if (sourceContains || targetContains) {
+          // Find all positions of the query in source and target
+          const sourcePositions = findAllPositions(sourceToSearch, searchQuery);
+          const targetPositions = findAllPositions(targetToSearch, searchQuery);
+
+          matches.push({
+            id: unit.id,
+            tmId: unit.tmId,
+            tmName: unit.tmName ?? undefined,
+            sourceText: unit.sourceText,
+            targetText: unit.targetText,
+            matchedIn: sourceContains && targetContains ? 'both' : sourceContains ? 'source' : 'target',
+            highlightPositions: {
+              source: sourcePositions,
+              target: targetPositions,
+            },
+          });
+
+          if (matches.length >= maxResults) {
+            break;
+          }
+        }
+      }
+
+      return matches;
+    },
+    {
+      ttl: env.CACHE_TM_MATCH_TTL,
+      tags: tmIds.map(cacheTags.tm),
+    }
+  );
+}
+
+/**
+ * Find all positions of a substring in a string
+ */
+function findAllPositions(text: string, query: string): Array<{ start: number; end: number }> {
+  const positions: Array<{ start: number; end: number }> = [];
+  let pos = 0;
+
+  while ((pos = text.indexOf(query, pos)) !== -1) {
+    positions.push({ start: pos, end: pos + query.length });
+    pos += 1; // Move forward to find overlapping matches
+  }
+
+  return positions;
 }
 
 // ============ Bulk Operations ============
@@ -392,20 +551,31 @@ export async function getTMStats(tmId: string): Promise<{
   unitCount: number;
   lastUpdated: Date | null;
 }> {
-  const [countResult] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(translationUnits)
-    .where(eq(translationUnits.tmId, tmId));
+  const cacheKey = cacheKeys.tmStats(tmId);
 
-  const [lastUnit] = await db
-    .select({ updatedAt: translationUnits.updatedAt })
-    .from(translationUnits)
-    .where(eq(translationUnits.tmId, tmId))
-    .orderBy(sql`${translationUnits.updatedAt} DESC`)
-    .limit(1);
+  return withCache(
+    cacheKey,
+    async () => {
+      const [countResult] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(translationUnits)
+        .where(eq(translationUnits.tmId, tmId));
 
-  return {
-    unitCount: countResult?.count ?? 0,
-    lastUpdated: lastUnit?.updatedAt ?? null,
-  };
+      const [lastUnit] = await db
+        .select({ updatedAt: translationUnits.updatedAt })
+        .from(translationUnits)
+        .where(eq(translationUnits.tmId, tmId))
+        .orderBy(sql`${translationUnits.updatedAt} DESC`)
+        .limit(1);
+
+      return {
+        unitCount: countResult?.count ?? 0,
+        lastUpdated: lastUnit?.updatedAt ?? null,
+      };
+    },
+    {
+      ttl: 300, // 5 minute TTL for stats
+      tags: [cacheTags.tm(tmId)],
+    }
+  );
 }
