@@ -19,7 +19,7 @@ export const SEGMENT_STATUSES = [
 
 export const PROJECT_STATUSES = ['active', 'completed', 'archived'] as const;
 
-export const SUPPORTED_FILE_TYPES = ['txt', 'xliff', 'xlf', 'json', 'html', 'tmx'] as const;
+export const SUPPORTED_FILE_TYPES = ['txt', 'xliff', 'xlf', 'sdlxliff', 'json', 'html', 'tmx', 'docx', 'pdf'] as const;
 
 export const MIN_FUZZY_MATCH_PERCENT = 70;
 export const MAX_TM_RESULTS = 10;

@@ -111,6 +111,11 @@ export interface Document {
   name: string;
   fileType: FileType;
   originalContent: string | null;
+  // Binary file support
+  fileStorageKey: string | null;
+  structureMetadata: unknown | null;
+  pageCount: number | null;
+  isBinaryFormat: boolean;
   workflowStatus: WorkflowStatus;
   createdBy: string | null;
   updatedBy: string | null;
