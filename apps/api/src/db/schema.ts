@@ -320,6 +320,11 @@ export const documents = pgTable(
     name: text('name').notNull(),
     fileType: text('file_type').notNull(),
     originalContent: text('original_content'),
+    // Binary file support (DOCX, PDF)
+    fileStorageKey: text('file_storage_key'), // S3/MinIO object key
+    structureMetadata: jsonb('structure_metadata'), // DOCX structure for reconstruction
+    pageCount: integer('page_count'), // PDF page count
+    isBinaryFormat: boolean('is_binary_format').default(false).notNull(),
     workflowStatus: text('workflow_status').default('translation'), // translation, review_1, review_2, complete
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
@@ -522,5 +527,43 @@ export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
   document: one(documents, {
     fields: [activityLogs.documentId],
     references: [documents.id],
+  }),
+}));
+
+// ============ Organization Invitations ============
+export const orgInvitations = pgTable(
+  'org_invitations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    role: text('role').notNull(), // admin, project_manager, translator, reviewer
+    token: text('token').unique().notNull(),
+    status: text('status').default('pending').notNull(), // pending, accepted, expired, cancelled
+    invitedBy: uuid('invited_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_invitations_org').on(table.orgId),
+    index('idx_invitations_email').on(table.email),
+    index('idx_invitations_token').on(table.token),
+    index('idx_invitations_status').on(table.status),
+  ]
+);
+
+export const orgInvitationsRelations = relations(orgInvitations, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [orgInvitations.orgId],
+    references: [organizations.id],
+  }),
+  invitedByUser: one(users, {
+    fields: [orgInvitations.invitedBy],
+    references: [users.id],
   }),
 }));

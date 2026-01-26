@@ -22,6 +22,20 @@
       "when": 1769358647545,
       "tag": "0002_flaky_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1769420504282,
+      "tag": "0003_unique_outlaw_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1769432989914,
+      "tag": "0004_lying_zaladane",
+      "breakpoints": true
     }
   ]
 }
