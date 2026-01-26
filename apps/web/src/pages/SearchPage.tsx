@@ -60,27 +60,30 @@ export function SearchPage() {
   const filtered = getFilteredResults();
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Search</h1>
+    <div className="p-4 bg-surface min-h-full">
+      <div className="mb-4">
+        <h1 className="text-lg font-semibold text-text">Search</h1>
+        <p className="text-xs text-text-muted" title="Search across all translation content">
+          Find segments, TM entries, and terminology
+        </p>
       </div>
 
       {/* Search Input */}
-      <form onSubmit={handleSearch} className="flex gap-2">
+      <form onSubmit={handleSearch} className="flex gap-2 mb-4">
         <div className="flex-1 relative">
           <input
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Search segments, TM entries, and terms..."
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-1.5 text-sm bg-surface-alt border border-border text-text focus:border-accent focus:outline-none"
             autoFocus
           />
         </div>
         <button
           type="submit"
           disabled={inputValue.trim().length < 2}
-          className="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-1.5 bg-accent text-white text-xs font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Search
         </button>
@@ -90,7 +93,7 @@ export function SearchPage() {
       {initialQuery.length >= 2 && (
         <>
           {/* Tabs */}
-          <div className="border-b border-gray-200">
+          <div className="border-b border-border mb-4">
             <nav className="-mb-px flex gap-4">
               <TabButton
                 active={activeTab === 'all'}
@@ -124,15 +127,15 @@ export function SearchPage() {
           </div>
 
           {/* Results List */}
-          <div className="space-y-3">
+          <div className="space-y-2">
             {isLoading ? (
-              <div className="text-center py-8 text-gray-500">Searching...</div>
+              <div className="text-center py-8 text-text-muted text-sm">Searching...</div>
             ) : error ? (
-              <div className="text-center py-8 text-red-500">
+              <div className="text-center py-8 text-danger text-sm">
                 Error: {(error as Error).message}
               </div>
             ) : getTotalCount(data) === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-text-muted text-sm">
                 No results found for "{initialQuery}"
               </div>
             ) : (
@@ -143,24 +146,24 @@ export function SearchPage() {
                     key={`segment-${segment.id}`}
                     to="/documents/$documentId"
                     params={{ documentId: segment.documentId }}
-                    className="block bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all"
+                    className="block bg-surface-alt border border-border p-3 hover:border-accent transition-colors"
                   >
-                    <div className="flex items-start gap-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                    <div className="flex items-start gap-2">
+                      <span className="flex-shrink-0 px-1.5 py-0.5 text-2xs font-medium bg-accent/10 text-accent">
                         Segment
                       </span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-gray-900">
-                          <span className="font-medium">Source:</span>{' '}
+                        <div className="text-xs text-text">
+                          <span className="font-medium text-text-muted">Source:</span>{' '}
                           <HighlightedText text={segment.sourceText} query={initialQuery} />
                         </div>
                         {segment.targetText && (
-                          <div className="text-sm text-gray-600 mt-1">
-                            <span className="font-medium">Target:</span>{' '}
+                          <div className="text-xs text-text-secondary mt-1">
+                            <span className="font-medium text-text-muted">Target:</span>{' '}
                             <HighlightedText text={segment.targetText} query={initialQuery} />
                           </div>
                         )}
-                        <div className="text-xs text-gray-400 mt-2">
+                        <div className="text-2xs text-text-muted mt-1.5">
                           {segment.documentName} &bull; {segment.projectName}
                         </div>
                       </div>
@@ -173,22 +176,22 @@ export function SearchPage() {
                   <Link
                     key={`tm-${unit.id}`}
                     to="/tm"
-                    className="block bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all"
+                    className="block bg-surface-alt border border-border p-3 hover:border-accent transition-colors"
                   >
-                    <div className="flex items-start gap-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                    <div className="flex items-start gap-2">
+                      <span className="flex-shrink-0 px-1.5 py-0.5 text-2xs font-medium bg-accent-muted/10 text-accent-muted">
                         TM Entry
                       </span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-gray-900">
-                          <span className="font-medium">Source:</span>{' '}
+                        <div className="text-xs text-text">
+                          <span className="font-medium text-text-muted">Source:</span>{' '}
                           <HighlightedText text={unit.sourceText} query={initialQuery} />
                         </div>
-                        <div className="text-sm text-gray-600 mt-1">
-                          <span className="font-medium">Target:</span>{' '}
+                        <div className="text-xs text-text-secondary mt-1">
+                          <span className="font-medium text-text-muted">Target:</span>{' '}
                           <HighlightedText text={unit.targetText} query={initialQuery} />
                         </div>
-                        <div className="text-xs text-gray-400 mt-2">{unit.tmName}</div>
+                        <div className="text-2xs text-text-muted mt-1.5">{unit.tmName}</div>
                       </div>
                     </div>
                   </Link>
@@ -199,22 +202,22 @@ export function SearchPage() {
                   <Link
                     key={`term-${term.id}`}
                     to="/tb"
-                    className="block bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all"
+                    className="block bg-surface-alt border border-border p-3 hover:border-accent transition-colors"
                   >
-                    <div className="flex items-start gap-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                    <div className="flex items-start gap-2">
+                      <span className="flex-shrink-0 px-1.5 py-0.5 text-2xs font-medium bg-success/10 text-success">
                         Term
                       </span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-gray-900">
+                        <div className="text-xs text-text">
                           <HighlightedText text={term.sourceTerm} query={initialQuery} />
-                          <span className="mx-2 text-gray-400">&rarr;</span>
+                          <span className="mx-2 text-text-muted">&rarr;</span>
                           <HighlightedText text={term.targetTerm} query={initialQuery} />
                         </div>
                         {term.definition && (
-                          <div className="text-sm text-gray-500 mt-1">{term.definition}</div>
+                          <div className="text-xs text-text-muted mt-1">{term.definition}</div>
                         )}
-                        <div className="text-xs text-gray-400 mt-2">{term.tbName}</div>
+                        <div className="text-2xs text-text-muted mt-1.5">{term.tbName}</div>
                       </div>
                     </div>
                   </Link>
@@ -227,7 +230,7 @@ export function SearchPage() {
 
       {/* Initial State */}
       {initialQuery.length < 2 && (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-text-muted text-sm">
           Enter at least 2 characters to search
         </div>
       )}
@@ -249,16 +252,16 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`py-3 px-1 border-b-2 text-sm font-medium ${
+      className={`py-2 px-1 border-b-2 text-xs font-medium transition-colors ${
         active
-          ? 'border-blue-500 text-blue-600'
-          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          ? 'border-accent text-accent'
+          : 'border-transparent text-text-muted hover:text-text hover:border-border'
       }`}
     >
       {children}
       <span
-        className={`ml-2 py-0.5 px-2 rounded-full text-xs ${
-          active ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
+        className={`ml-1.5 py-0.5 px-1.5 text-2xs ${
+          active ? 'bg-accent/10 text-accent' : 'bg-surface-panel text-text-muted'
         }`}
       >
         {count}
@@ -277,7 +280,7 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
     <>
       {parts.map((part, i) =>
         regex.test(part) ? (
-          <mark key={i} className="bg-yellow-200 px-0.5 rounded">
+          <mark key={i} className="bg-warning/30 px-0.5">
             {part}
           </mark>
         ) : (

@@ -1,7 +1,7 @@
 import { api, ApiError } from './client';
 import type { TranslationMemory, TranslationUnit, TMMatch } from '@oxy/shared';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5064/api/v1';
 
 export interface CreateTMInput {
   name: string;

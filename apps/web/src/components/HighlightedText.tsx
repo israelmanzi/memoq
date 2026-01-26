@@ -57,7 +57,7 @@ export function HighlightedText({ text, termMatches, onTermClick }: HighlightedT
         segment.match ? (
           <span
             key={index}
-            className="underline decoration-orange-400 decoration-2 underline-offset-2 cursor-pointer hover:bg-orange-100 transition-colors"
+            className="underline decoration-warning decoration-2 underline-offset-2 cursor-pointer hover:bg-warning-bg transition-colors"
             title={`${segment.match.sourceTerm} → ${segment.match.targetTerm}`}
             onClick={(e) => {
               e.stopPropagation();

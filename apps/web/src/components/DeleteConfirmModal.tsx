@@ -79,25 +79,25 @@ export function DeleteConfirmModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
+      <div className="bg-surface-alt border border-border shadow-xl w-full max-w-md mx-4">
+        <div className="p-4">
+          <h2 className="text-sm font-semibold text-text mb-3">{title}</h2>
 
           {/* Warning for linked projects */}
           {hasLinkedProjects && (
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-sm font-medium text-amber-800 mb-2">
+            <div className="mb-3 p-3 bg-warning-bg border border-warning/20">
+              <p className="text-xs font-medium text-warning mb-1.5">
                 This resource is linked to {linkedProjects.length} project{linkedProjects.length !== 1 ? 's' : ''}:
               </p>
-              <ul className="text-sm text-amber-700 list-disc list-inside">
+              <ul className="text-xs text-warning list-disc list-inside">
                 {linkedProjects.slice(0, 5).map((p) => (
                   <li key={p.id}>{p.name}</li>
                 ))}
                 {linkedProjects.length > 5 && (
-                  <li className="text-amber-600">...and {linkedProjects.length - 5} more</li>
+                  <li className="opacity-75">...and {linkedProjects.length - 5} more</li>
                 )}
               </ul>
-              <p className="text-xs text-amber-600 mt-2">
+              <p className="text-2xs text-warning/80 mt-1.5">
                 Deleting will automatically unlink from these projects.
               </p>
             </div>
@@ -105,11 +105,11 @@ export function DeleteConfirmModal({
 
           {/* Impact display */}
           {impacts.length > 0 && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm font-medium text-red-800 mb-2">
+            <div className="mb-3 p-3 bg-danger-bg border border-danger/20">
+              <p className="text-xs font-medium text-danger mb-1.5">
                 This will permanently delete:
               </p>
-              <ul className="text-sm text-red-700">
+              <ul className="text-xs text-danger">
                 {impacts.map((impact, idx) => (
                   <li key={idx}>
                     {impact.count.toLocaleString()} {impact.label}
@@ -121,31 +121,31 @@ export function DeleteConfirmModal({
 
           {/* Confirmation message */}
           {mode === 'simple' && (
-            <p className="text-gray-600 mb-4">
-              Are you sure you want to delete <strong>{itemName}</strong>? This action cannot be undone.
+            <p className="text-xs text-text-secondary mb-3">
+              Are you sure you want to delete <strong className="text-text">{itemName}</strong>? This action cannot be undone.
             </p>
           )}
 
           {mode === 'impact' && (
-            <p className="text-gray-600 mb-4">
-              Are you sure you want to delete <strong>{itemName}</strong>?
+            <p className="text-xs text-text-secondary mb-3">
+              Are you sure you want to delete <strong className="text-text">{itemName}</strong>?
             </p>
           )}
 
           {mode === 'type-confirm' && (
             <>
-              <p className="text-gray-600 mb-4">
-                This action <strong>cannot be undone</strong>. To confirm, type the name below:
+              <p className="text-xs text-text-secondary mb-3">
+                This action <strong className="text-text">cannot be undone</strong>. To confirm, type the name below:
               </p>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-text-secondary mb-1">
                   Type "{itemName}" to confirm
                 </label>
                 <input
                   type="text"
                   value={confirmText}
                   onChange={(e) => setConfirmText(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  className="w-full px-2 py-1.5 text-sm bg-surface border border-border text-text focus:border-danger focus:outline-none"
                   placeholder={itemName}
                   autoFocus
                 />
@@ -154,23 +154,23 @@ export function DeleteConfirmModal({
           )}
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+            <div className="mb-3 p-2 bg-danger-bg border border-danger/20 text-danger text-xs">
               {error}
             </div>
           )}
 
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-2">
             <button
               onClick={onClose}
               disabled={isDeleting}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50 transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleConfirm}
               disabled={!canConfirm || isDeleting}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 bg-danger text-white text-xs font-medium hover:bg-danger-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isDeleting ? 'Deleting...' : 'Delete'}
             </button>

@@ -137,29 +137,29 @@ export function LoginPage() {
   // Backup codes display (after MFA setup)
   if (backupCodes) {
     return (
-      <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-2">Save your backup codes</h2>
-        <p className="text-sm text-gray-600 mb-6">
+      <div className="bg-surface-alt p-6 border border-border">
+        <h2 className="text-lg font-semibold text-text mb-2">Save your backup codes</h2>
+        <p className="text-xs text-text-secondary mb-4">
           Store these codes in a safe place. You can use them to access your account if you lose your authenticator device.
         </p>
 
-        <div className="bg-gray-50 border border-gray-200 rounded-md p-4 mb-6">
-          <div className="grid grid-cols-2 gap-2 font-mono text-sm">
+        <div className="bg-surface-panel border border-border p-3 mb-4">
+          <div className="grid grid-cols-2 gap-2 font-mono text-xs">
             {backupCodes.map((code, index) => (
-              <div key={index} className="text-center py-1 bg-white rounded border border-gray-200">
+              <div key={index} className="text-center py-1 bg-surface-alt border border-border">
                 {code}
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-md p-3 mb-6">
+        <p className="text-xs text-warning bg-warning-bg border border-warning/20 p-2 mb-4">
           Each backup code can only be used once. Keep them secure and do not share them.
         </p>
 
         <button
           onClick={handleContinueAfterBackupCodes}
-          className="w-full py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          className="w-full py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors"
         >
           I've saved my codes, continue
         </button>
@@ -170,34 +170,34 @@ export function LoginPage() {
   // MFA setup step (for users without MFA)
   if (setupToken && setupQrCode) {
     return (
-      <form onSubmit={handleSetupSubmit} className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-2">Set up two-factor authentication</h2>
-        <p className="text-sm text-gray-600 mb-6">
+      <form onSubmit={handleSetupSubmit} className="bg-surface-alt p-6 border border-border">
+        <h2 className="text-lg font-semibold text-text mb-2">Set up two-factor authentication</h2>
+        <p className="text-xs text-text-secondary mb-4">
           Two-factor authentication is required. Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)
         </p>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          <div className="mb-4 p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
             {error}
           </div>
         )}
 
         <div className="flex justify-center mb-4">
-          <img src={setupQrCode} alt="MFA QR Code" className="w-48 h-48" />
+          <img src={setupQrCode} alt="MFA QR Code" className="w-40 h-40" />
         </div>
 
         {setupSecret && (
-          <div className="mb-6">
-            <p className="text-xs text-gray-500 text-center mb-1">Can't scan? Enter this code manually:</p>
-            <p className="text-sm font-mono text-center bg-gray-100 py-2 px-4 rounded-md select-all">
+          <div className="mb-4">
+            <p className="text-2xs text-text-muted text-center mb-1">Can't scan? Enter this code manually:</p>
+            <p className="text-xs font-mono text-center bg-surface-panel py-2 px-3 select-all">
               {setupSecret}
             </p>
           </div>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div>
-            <label htmlFor="setupCode" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="setupCode" className="block text-xs font-medium text-text-secondary mb-1">
               Enter the 6-digit code from your app
             </label>
             <input
@@ -212,14 +212,14 @@ export function LoginPage() {
               value={setupCode}
               onChange={(e) => setSetupCode(e.target.value.replace(/\D/g, ''))}
               placeholder="000000"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-lg tracking-widest"
+              className="w-full px-3 py-2 bg-surface border border-border text-text focus:border-accent focus:outline-none text-center text-base tracking-widest"
             />
           </div>
 
           <button
             type="submit"
             disabled={mfaSetupVerifyMutation.isPending || setupCode.length !== 6}
-            className="w-full py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+            className="w-full py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
           >
             {mfaSetupVerifyMutation.isPending ? 'Verifying...' : 'Enable two-factor authentication'}
           </button>
@@ -227,7 +227,7 @@ export function LoginPage() {
           <button
             type="button"
             onClick={handleBackToLogin}
-            className="w-full py-2 px-4 text-gray-600 font-medium hover:text-gray-800"
+            className="w-full py-2 px-4 text-text-secondary text-sm font-medium hover:text-text"
           >
             Back to login
           </button>
@@ -239,9 +239,9 @@ export function LoginPage() {
   // MFA setup loading (waiting for QR code)
   if (setupToken && !setupQrCode) {
     return (
-      <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 text-center">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-4">Setting up two-factor authentication</h2>
-        <div className="text-gray-500">Loading...</div>
+      <div className="bg-surface-alt p-6 border border-border text-center">
+        <h2 className="text-lg font-semibold text-text mb-3">Setting up two-factor authentication</h2>
+        <div className="text-text-muted text-sm">Loading...</div>
       </div>
     );
   }
@@ -249,21 +249,21 @@ export function LoginPage() {
   // MFA verification step
   if (mfaToken) {
     return (
-      <form onSubmit={handleMFASubmit} className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-2">Two-factor authentication</h2>
-        <p className="text-sm text-gray-600 mb-6">
+      <form onSubmit={handleMFASubmit} className="bg-surface-alt p-6 border border-border">
+        <h2 className="text-lg font-semibold text-text mb-2">Two-factor authentication</h2>
+        <p className="text-xs text-text-secondary mb-4">
           Enter the 6-digit code from your authenticator app, or use a backup code.
         </p>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          <div className="mb-4 p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
             {error}
           </div>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div>
-            <label htmlFor="mfaCode" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="mfaCode" className="block text-xs font-medium text-text-secondary mb-1">
               Authentication code
             </label>
             <input
@@ -277,14 +277,14 @@ export function LoginPage() {
               value={mfaCode}
               onChange={(e) => setMfaCode(e.target.value)}
               placeholder="000000"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-lg tracking-widest"
+              className="w-full px-3 py-2 bg-surface border border-border text-text focus:border-accent focus:outline-none text-center text-base tracking-widest"
             />
           </div>
 
           <button
             type="submit"
             disabled={mfaVerifyMutation.isPending || mfaCode.length < 6}
-            className="w-full py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+            className="w-full py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
           >
             {mfaVerifyMutation.isPending ? 'Verifying...' : 'Verify'}
           </button>
@@ -292,7 +292,7 @@ export function LoginPage() {
           <button
             type="button"
             onClick={handleBackToLogin}
-            className="w-full py-2 px-4 text-gray-600 font-medium hover:text-gray-800"
+            className="w-full py-2 px-4 text-text-secondary text-sm font-medium hover:text-text"
           >
             Back to login
           </button>
@@ -303,18 +303,18 @@ export function LoginPage() {
 
   // Login form
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-      <h2 className="text-2xl font-semibold text-gray-900 mb-6">Sign in</h2>
+    <form onSubmit={handleSubmit} className="bg-surface-alt p-6 border border-border">
+      <h2 className="text-lg font-semibold text-text mb-4">Sign in</h2>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+        <div className="mb-4 p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
           {error}
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="email" className="block text-xs font-medium text-text-secondary mb-1">
             Email
           </label>
           <input
@@ -323,12 +323,12 @@ export function LoginPage() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-2.5 py-1.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
           />
         </div>
 
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="password" className="block text-xs font-medium text-text-secondary mb-1">
             Password
           </label>
           <input
@@ -337,12 +337,12 @@ export function LoginPage() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-2.5 py-1.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
           />
         </div>
 
         <div className="flex justify-end">
-          <Link to="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700">
+          <Link to="/forgot-password" className="text-xs text-accent hover:text-accent-hover">
             Forgot password?
           </Link>
         </div>
@@ -350,15 +350,15 @@ export function LoginPage() {
         <button
           type="submit"
           disabled={loginMutation.isPending}
-          className="w-full py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+          className="w-full py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
         >
           {loginMutation.isPending ? 'Signing in...' : 'Sign in'}
         </button>
       </div>
 
-      <p className="mt-6 text-center text-sm text-gray-600">
+      <p className="mt-4 text-center text-xs text-text-secondary">
         Don't have an account?{' '}
-        <Link to="/register" className="text-blue-600 hover:text-blue-700 font-medium">
+        <Link to="/register" className="text-accent hover:text-accent-hover font-medium">
           Sign up
         </Link>
       </p>

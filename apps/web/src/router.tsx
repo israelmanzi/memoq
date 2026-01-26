@@ -1,4 +1,4 @@
-import { createRouter, createRoute, createRootRoute, redirect } from '@tanstack/react-router';
+import { createRouter, createRoute, createRootRoute, redirect, NotFoundRoute } from '@tanstack/react-router';
 import { RootLayout } from './components/layouts/RootLayout';
 import { AuthLayout } from './components/layouts/AuthLayout';
 import { DashboardLayout } from './components/layouts/DashboardLayout';
@@ -15,6 +15,8 @@ import { TMListPage } from './pages/TMListPage';
 import { TBListPage } from './pages/TBListPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SearchPage } from './pages/SearchPage';
+import { NotFoundPage } from './pages/NotFoundPage';
+import { AcceptInvitationPage } from './pages/AcceptInvitationPage';
 import { useAuthStore } from './stores/auth';
 
 // Root route
@@ -145,9 +147,23 @@ const indexRoute = createRoute({
   },
 });
 
+// Invitation acceptance route (public, but may redirect to login)
+const invitationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/invitations/$token',
+  component: AcceptInvitationPage,
+});
+
+// 404 Not Found route
+const notFoundRoute = new NotFoundRoute({
+  getParentRoute: () => rootRoute,
+  component: NotFoundPage,
+});
+
 // Build route tree
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  invitationRoute,
   authRoute.addChildren([
     loginRoute,
     registerRoute,
@@ -167,7 +183,10 @@ const routeTree = rootRoute.addChildren([
   ]),
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({
+  routeTree,
+  notFoundRoute,
+});
 
 declare module '@tanstack/react-router' {
   interface Register {

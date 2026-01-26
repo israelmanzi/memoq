@@ -38,6 +38,8 @@ function getActionIcon(action: string): string {
       return '×';
     case 'update':
       return '↻';
+    case 'export':
+      return '↓';
     case 'add_member':
       return '👤+';
     case 'remove_member':
@@ -55,18 +57,20 @@ function getActionColor(action: string): string {
   switch (action) {
     case 'create':
     case 'upload':
-      return 'bg-green-100 text-green-700';
+      return 'bg-success-bg text-success';
     case 'translate':
-      return 'bg-blue-100 text-blue-700';
+      return 'bg-accent/10 text-accent';
     case 'review':
     case 'confirm':
-      return 'bg-purple-100 text-purple-700';
+      return 'bg-accent/10 text-accent-muted';
     case 'delete':
-      return 'bg-red-100 text-red-700';
+      return 'bg-danger-bg text-danger';
     case 'update':
-      return 'bg-yellow-100 text-yellow-700';
+      return 'bg-warning-bg text-warning';
+    case 'export':
+      return 'bg-surface-panel text-text-secondary';
     default:
-      return 'bg-gray-100 text-gray-700';
+      return 'bg-surface-panel text-text-muted';
   }
 }
 
@@ -120,6 +124,8 @@ function formatActionText(activity: ActivityLogEntry, showEntityName: boolean): 
       return `removed a resource from project`;
     case 'status_change':
       return `changed status`;
+    case 'export':
+      return `exported ${formattedType}${name}`;
     default:
       return `${action} ${formattedType}`;
   }
@@ -128,13 +134,13 @@ function formatActionText(activity: ActivityLogEntry, showEntityName: boolean): 
 export function ActivityFeed({ activities, isLoading, showEntityName = true }: ActivityFeedProps) {
   if (isLoading) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-2">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="animate-pulse flex items-start gap-3">
-            <div className="w-8 h-8 bg-gray-200 rounded-full" />
+          <div key={i} className="animate-pulse flex items-start gap-2">
+            <div className="w-6 h-6 bg-surface-panel rounded-full" />
             <div className="flex-1">
-              <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
-              <div className="h-3 bg-gray-200 rounded w-1/2" />
+              <div className="h-3 bg-surface-panel rounded w-3/4 mb-1" />
+              <div className="h-2 bg-surface-panel rounded w-1/2" />
             </div>
           </div>
         ))}
@@ -144,25 +150,26 @@ export function ActivityFeed({ activities, isLoading, showEntityName = true }: A
 
   if (activities.length === 0) {
     return (
-      <p className="text-sm text-gray-500 text-center py-4">No activity yet</p>
+      <p className="text-xs text-text-muted text-center py-4">No activity yet</p>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {activities.map((activity) => (
-        <div key={activity.id} className="flex items-start gap-3">
+        <div key={activity.id} className="flex items-start gap-2">
           <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${getActionColor(activity.action)}`}
+            className={`w-6 h-6 rounded-full flex items-center justify-center text-2xs font-medium flex-shrink-0 ${getActionColor(activity.action)}`}
+            title={activity.action}
           >
             {getActionIcon(activity.action)}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm text-gray-900">
+            <p className="text-xs text-text">
               <span className="font-medium">{activity.userName || 'Unknown'}</span>{' '}
               {formatActionText(activity, showEntityName)}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-2xs text-text-muted">
               {formatRelativeTime(activity.createdAt)}
             </p>
           </div>

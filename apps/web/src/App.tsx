@@ -7,8 +7,8 @@ export function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-gray-500">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-surface">
+        <div className="text-text-muted text-sm">Loading...</div>
       </div>
     );
   }

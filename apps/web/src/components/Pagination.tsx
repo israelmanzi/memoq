@@ -60,31 +60,31 @@ export function Pagination({ total, limit, offset, onPageChange }: PaginationPro
   };
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-      <div className="text-sm text-gray-500">
+    <div className="flex items-center justify-between px-3 py-2 border-t border-border">
+      <div className="text-xs text-text-muted">
         Showing {offset + 1} - {Math.min(offset + limit, total)} of {total}
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
         <button
           onClick={() => goToPage(currentPage - 1)}
           disabled={currentPage === 1}
-          className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-2 py-1 text-xs border border-border hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Prev
         </button>
         {getPageNumbers().map((page, idx) =>
           page === 'ellipsis' ? (
-            <span key={`ellipsis-${idx}`} className="px-2 py-1 text-sm text-gray-400">
+            <span key={`ellipsis-${idx}`} className="px-1.5 py-1 text-xs text-text-muted">
               ...
             </span>
           ) : (
             <button
               key={page}
               onClick={() => goToPage(page)}
-              className={`px-3 py-1 text-sm border rounded ${
+              className={`px-2.5 py-1 text-xs border transition-colors ${
                 page === currentPage
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'border-gray-300 hover:bg-gray-50'
+                  ? 'bg-accent text-white border-accent'
+                  : 'border-border hover:bg-surface-hover'
               }`}
             >
               {page}
@@ -94,7 +94,7 @@ export function Pagination({ total, limit, offset, onPageChange }: PaginationPro
         <button
           onClick={() => goToPage(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className="px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-2 py-1 text-xs border border-border hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Next
         </button>

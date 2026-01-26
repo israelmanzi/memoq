@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../stores/auth';
@@ -22,6 +22,23 @@ export function DashboardLayout() {
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Keyboard shortcut: "/" to focus search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -45,46 +62,51 @@ export function DashboardLayout() {
   const hasOrgs = orgs.length > 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-surface-alt border-b border-border">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-8">
-              <Link to="/dashboard" className="text-xl font-bold text-gray-900">
+          <div className="flex items-center justify-between h-12">
+            {/* Left: Logo + Org Switcher */}
+            <div className="flex items-center gap-6">
+              <Link to="/dashboard" className="text-base font-bold text-text">
                 OXY
               </Link>
               {hasOrgs && <OrgSwitcher />}
             </div>
-            <div className="flex items-center gap-4">
-              {currentOrg && (
-                <form onSubmit={handleSearch} className="relative">
+
+            {/* Center: Global Search */}
+            {currentOrg && (
+              <form onSubmit={handleSearch} className="flex-1 max-w-md mx-8">
+                <div className="relative">
+                  <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search..."
-                    className="w-48 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Search projects, documents, segments, TM, terms..."
+                    className="w-full pl-8 pr-12 py-1.5 text-xs bg-surface border border-border text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
                   />
-                  <button
-                    type="submit"
-                    disabled={searchQuery.trim().length < 2}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  </button>
-                </form>
-              )}
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-2xs text-text-muted border border-border-light px-1 py-0.5 bg-surface-panel">
+                    /
+                  </span>
+                </div>
+              </form>
+            )}
+
+            {/* Right: User Menu */}
+            <div className="flex items-center gap-3">
               {/* User Menu */}
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-2 text-sm text-gray-700 hover:text-gray-900"
+                  className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text"
                 >
                   <span>{user?.name}</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
@@ -94,21 +116,21 @@ export function DashboardLayout() {
                       className="fixed inset-0 z-10"
                       onClick={() => setShowUserMenu(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-20">
+                    <div className="absolute right-0 mt-1 w-44 bg-surface-alt border border-border shadow-lg z-20">
                       <div className="py-1">
-                        <div className="px-4 py-2 text-sm text-gray-500 border-b border-gray-100">
+                        <div className="px-3 py-2 text-2xs text-text-muted border-b border-border-light">
                           {user?.email}
                         </div>
                         <Link
                           to="/settings"
                           onClick={() => setShowUserMenu(false)}
-                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          className="block px-3 py-2 text-xs text-text-secondary hover:bg-surface-hover"
                         >
                           Settings
                         </Link>
                         <button
                           onClick={handleLogout}
-                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          className="block w-full text-left px-3 py-2 text-xs text-text-secondary hover:bg-surface-hover"
                         >
                           Logout
                         </button>
@@ -124,19 +146,19 @@ export function DashboardLayout() {
 
       {/* Navigation */}
       {currentOrg && (
-        <nav className="bg-white border-b border-gray-200">
+        <nav className="bg-surface-alt border-b border-border">
           <div className="max-w-7xl mx-auto px-4">
-            <div className="flex gap-8">
+            <div className="flex gap-6">
               {navItems.map((item) => {
                 const isActive = location.pathname.startsWith(item.path);
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`py-4 text-sm font-medium border-b-2 -mb-px ${
+                    className={`py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors ${
                       isActive
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                        ? 'border-accent text-accent'
+                        : 'border-transparent text-text-muted hover:text-text'
                     }`}
                   >
                     {item.label}
@@ -149,20 +171,20 @@ export function DashboardLayout() {
       )}
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto">
         {orgsLoading ? (
-          <div className="text-center py-12 text-gray-500">Loading...</div>
+          <div className="text-center py-12 text-text-muted text-sm">Loading...</div>
         ) : !hasOrgs ? (
           <div className="text-center py-12">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-lg font-semibold text-text mb-2">
               Welcome to OXY!
             </h2>
-            <p className="text-gray-600 mb-6">
+            <p className="text-sm text-text-secondary mb-4">
               Create your first organization to get started.
             </p>
             <button
               onClick={() => setShowCreateOrg(true)}
-              className="px-4 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700"
+              className="px-3 py-1.5 bg-accent text-white text-xs font-medium hover:bg-accent-hover transition-colors"
             >
               Create Organization
             </button>
@@ -171,10 +193,10 @@ export function DashboardLayout() {
           <Outlet />
         ) : (
           <div className="text-center py-12">
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-lg font-semibold text-text mb-2">
               Select an Organization
             </h2>
-            <p className="text-gray-600">
+            <p className="text-sm text-text-secondary">
               Choose an organization from the dropdown above to get started.
             </p>
           </div>
@@ -234,18 +256,18 @@ function CreateOrgModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Create Organization</h2>
+      <div className="bg-surface-alt border border-border shadow-xl w-full max-w-md p-4">
+        <h2 className="text-sm font-semibold text-text mb-3">Create Organization</h2>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+          <div className="mb-3 p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-medium text-text-secondary mb-1">
               Organization Name
             </label>
             <input
@@ -254,12 +276,12 @@ function CreateOrgModal({
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
               placeholder="My Company"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-2.5 py-1.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-xs font-medium text-text-secondary mb-1">
               Slug (URL identifier)
             </label>
             <input
@@ -268,25 +290,25 @@ function CreateOrgModal({
               value={slug}
               onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
               placeholder="my-company"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-2.5 py-1.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-2xs text-text-muted">
               Only lowercase letters, numbers, and dashes
             </p>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md"
+              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={createMutation.isPending}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50"
+              className="px-3 py-1.5 bg-accent text-white text-xs font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
             >
               {createMutation.isPending ? 'Creating...' : 'Create Organization'}
             </button>

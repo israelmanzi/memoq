@@ -136,7 +136,7 @@ export const projectsApi = {
     formData.append('file', file);
 
     const token = localStorage.getItem('token');
-    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/v1/documents/project/${projectId}/upload`, {
+    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5064'}/api/v1/documents/project/${projectId}/upload`, {
       method: 'POST',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -163,10 +163,13 @@ export const projectsApi = {
 
   deleteDocument: (documentId: string) => api.delete(`/documents/${documentId}`),
 
-  exportDocument: async (documentId: string, format: 'txt' | 'xliff' = 'xliff'): Promise<void> => {
+  exportDocument: async (
+    documentId: string,
+    format: 'txt' | 'xliff' | 'docx' | 'pdf' = 'xliff'
+  ): Promise<void> => {
     const token = localStorage.getItem('token');
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/v1/documents/${documentId}/export?format=${format}`,
+      `${import.meta.env.VITE_API_URL || 'http://localhost:5064'}/api/v1/documents/${documentId}/export?format=${format}`,
       {
         method: 'GET',
         headers: {
@@ -208,6 +211,14 @@ export const projectsApi = {
   getExportFormats: () =>
     api.get<{ formats: string[] }>('/documents/export-formats'),
 
+  // Get URL for original file (for PDF viewer)
+  getOriginalFileUrl: (documentId: string): string => {
+    const token = localStorage.getItem('token');
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5064';
+    // Note: For PDF viewer, we pass token as query param since iframe/object can't set headers
+    return `${baseUrl}/api/v1/documents/${documentId}/original-file${token ? `?token=${token}` : ''}`;
+  },
+
   // Segments
   listSegments: (documentId: string, includeMatches = false) =>
     api.get<{ items: SegmentWithMatchInfo[] }>(
@@ -230,4 +241,27 @@ export const projectsApi = {
     documentId: string,
     segments: Array<{ id: string; targetText: string; status?: SegmentStatus }>
   ) => api.patch<{ updated: number }>(`/documents/${documentId}/segments`, { segments }),
+
+  // Concordance search
+  concordanceSearch: (
+    documentId: string,
+    query: string,
+    searchIn: 'source' | 'target' | 'both' = 'both'
+  ) => api.get<{ items: ConcordanceMatch[]; message?: string }>(
+    `/documents/${documentId}/concordance?q=${encodeURIComponent(query)}&searchIn=${searchIn}`
+  ),
 };
+
+// Concordance search result
+export interface ConcordanceMatch {
+  id: string;
+  tmId: string;
+  tmName?: string;
+  sourceText: string;
+  targetText: string;
+  matchedIn: 'source' | 'target' | 'both';
+  highlightPositions: {
+    source: Array<{ start: number; end: number }>;
+    target: Array<{ start: number; end: number }>;
+  };
+}

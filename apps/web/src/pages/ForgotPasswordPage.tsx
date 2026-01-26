@@ -31,18 +31,18 @@ export function ForgotPasswordPage() {
 
   if (success) {
     return (
-      <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
+      <div className="bg-surface-alt p-6 border border-border">
         <div className="text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-12 h-12 bg-success-bg flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
           </div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Check your email</h2>
-          <p className="text-gray-600 mb-6">
-            If an account exists for <strong>{email}</strong>, we've sent a password reset link.
+          <h2 className="text-lg font-semibold text-text mb-2">Check your email</h2>
+          <p className="text-xs text-text-secondary mb-4">
+            If an account exists for <strong className="text-text">{email}</strong>, we've sent a password reset link.
           </p>
-          <Link to="/login" className="text-blue-600 hover:text-blue-700 font-medium">
+          <Link to="/login" className="text-xs text-accent hover:text-accent-hover font-medium">
             Back to login
           </Link>
         </div>
@@ -51,21 +51,21 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-      <h2 className="text-2xl font-semibold text-gray-900 mb-2">Forgot password?</h2>
-      <p className="text-sm text-gray-600 mb-6">
+    <form onSubmit={handleSubmit} className="bg-surface-alt p-6 border border-border">
+      <h2 className="text-lg font-semibold text-text mb-2">Forgot password?</h2>
+      <p className="text-xs text-text-secondary mb-4">
         Enter your email and we'll send you a link to reset your password.
       </p>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+        <div className="mb-4 p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
           {error}
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="email" className="block text-xs font-medium text-text-secondary mb-1">
             Email
           </label>
           <input
@@ -74,22 +74,22 @@ export function ForgotPasswordPage() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-2.5 py-1.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
           />
         </div>
 
         <button
           type="submit"
           disabled={forgotMutation.isPending}
-          className="w-full py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+          className="w-full py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
         >
           {forgotMutation.isPending ? 'Sending...' : 'Send reset link'}
         </button>
       </div>
 
-      <p className="mt-6 text-center text-sm text-gray-600">
+      <p className="mt-4 text-center text-xs text-text-secondary">
         Remember your password?{' '}
-        <Link to="/login" className="text-blue-600 hover:text-blue-700 font-medium">
+        <Link to="/login" className="text-accent hover:text-accent-hover font-medium">
           Sign in
         </Link>
       </p>

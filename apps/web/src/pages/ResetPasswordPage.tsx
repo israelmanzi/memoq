@@ -45,16 +45,16 @@ export function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
+      <div className="bg-surface-alt p-6 border border-border">
         <div className="text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-12 h-12 bg-danger-bg flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Invalid link</h2>
-          <p className="text-gray-600 mb-6">This password reset link is invalid or has expired.</p>
-          <Link to="/forgot-password" className="text-blue-600 hover:text-blue-700 font-medium">
+          <h2 className="text-lg font-semibold text-text mb-2">Invalid link</h2>
+          <p className="text-xs text-text-secondary mb-4">This password reset link is invalid or has expired.</p>
+          <Link to="/forgot-password" className="text-xs text-accent hover:text-accent-hover font-medium">
             Request a new link
           </Link>
         </div>
@@ -64,18 +64,18 @@ export function ResetPasswordPage() {
 
   if (success) {
     return (
-      <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
+      <div className="bg-surface-alt p-6 border border-border">
         <div className="text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-12 h-12 bg-success-bg flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Password reset!</h2>
-          <p className="text-gray-600 mb-6">Your password has been successfully reset. You can now sign in with your new password.</p>
+          <h2 className="text-lg font-semibold text-text mb-2">Password reset!</h2>
+          <p className="text-xs text-text-secondary mb-4">Your password has been successfully reset. You can now sign in with your new password.</p>
           <Link
             to="/login"
-            className="inline-block py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700"
+            className="inline-block py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors"
           >
             Sign in
           </Link>
@@ -85,19 +85,19 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
-      <h2 className="text-2xl font-semibold text-gray-900 mb-2">Reset password</h2>
-      <p className="text-sm text-gray-600 mb-6">Enter your new password below.</p>
+    <form onSubmit={handleSubmit} className="bg-surface-alt p-6 border border-border">
+      <h2 className="text-lg font-semibold text-text mb-2">Reset password</h2>
+      <p className="text-xs text-text-secondary mb-4">Enter your new password below.</p>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600">
+        <div className="mb-4 p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
           {error}
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="password" className="block text-xs font-medium text-text-secondary mb-1">
             New password
           </label>
           <input
@@ -107,13 +107,13 @@ export function ResetPasswordPage() {
             minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-2.5 py-1.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
           />
-          <p className="mt-1 text-xs text-gray-500">Minimum 8 characters</p>
+          <p className="mt-1 text-2xs text-text-muted">Minimum 8 characters</p>
         </div>
 
         <div>
-          <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="confirmPassword" className="block text-xs font-medium text-text-secondary mb-1">
             Confirm password
           </label>
           <input
@@ -122,22 +122,22 @@ export function ResetPasswordPage() {
             required
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-2.5 py-1.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
           />
         </div>
 
         <button
           type="submit"
           disabled={resetMutation.isPending}
-          className="w-full py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+          className="w-full py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
         >
           {resetMutation.isPending ? 'Resetting...' : 'Reset password'}
         </button>
       </div>
 
-      <p className="mt-6 text-center text-sm text-gray-600">
+      <p className="mt-4 text-center text-xs text-text-secondary">
         Remember your password?{' '}
-        <Link to="/login" className="text-blue-600 hover:text-blue-700 font-medium">
+        <Link to="/login" className="text-accent hover:text-accent-hover font-medium">
           Sign in
         </Link>
       </p>

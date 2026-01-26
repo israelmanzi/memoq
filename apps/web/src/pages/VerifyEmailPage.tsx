@@ -36,15 +36,15 @@ export function VerifyEmailPage() {
 
   if (status === 'loading') {
     return (
-      <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
+      <div className="bg-surface-alt p-6 border border-border">
         <div className="text-center">
-          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
-            <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-12 h-12 bg-accent/10 flex items-center justify-center mx-auto mb-3 animate-pulse">
+            <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
           </div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Verifying your email...</h2>
-          <p className="text-gray-600">Please wait a moment.</p>
+          <h2 className="text-lg font-semibold text-text mb-2">Verifying your email...</h2>
+          <p className="text-xs text-text-secondary">Please wait a moment.</p>
         </div>
       </div>
     );
@@ -52,18 +52,18 @@ export function VerifyEmailPage() {
 
   if (status === 'success') {
     return (
-      <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
+      <div className="bg-surface-alt p-6 border border-border">
         <div className="text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-12 h-12 bg-success-bg flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Email verified!</h2>
-          <p className="text-gray-600 mb-6">Your email has been successfully verified. You can now sign in to your account.</p>
+          <h2 className="text-lg font-semibold text-text mb-2">Email verified!</h2>
+          <p className="text-xs text-text-secondary mb-4">Your email has been successfully verified. You can now sign in to your account.</p>
           <Link
             to="/login"
-            className="inline-block py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700"
+            className="inline-block py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors"
           >
             Sign in
           </Link>
@@ -73,16 +73,16 @@ export function VerifyEmailPage() {
   }
 
   return (
-    <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200">
+    <div className="bg-surface-alt p-6 border border-border">
       <div className="text-center">
-        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-12 h-12 bg-danger-bg flex items-center justify-center mx-auto mb-3">
+          <svg className="w-6 h-6 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </div>
-        <h2 className="text-2xl font-semibold text-gray-900 mb-2">Verification failed</h2>
-        <p className="text-gray-600 mb-6">{error}</p>
-        <Link to="/login" className="text-blue-600 hover:text-blue-700 font-medium">
+        <h2 className="text-lg font-semibold text-text mb-2">Verification failed</h2>
+        <p className="text-xs text-text-secondary mb-4">{error}</p>
+        <Link to="/login" className="text-xs text-accent hover:text-accent-hover font-medium">
           Back to login
         </Link>
       </div>

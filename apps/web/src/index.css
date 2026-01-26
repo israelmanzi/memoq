@@ -1,3 +1,56 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface text-text antialiased;
+    font-size: 14px;
+  }
+
+  /* Scrollbar styling for dense UI */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-panel;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-sm;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border-dark;
+  }
+}
+
+@layer components {
+  /* Compact form elements */
+  .input-compact {
+    @apply px-1.5 py-1 text-xs bg-surface border border-border focus:outline-none focus:ring-1 focus:ring-accent;
+  }
+
+  /* Compact button */
+  .btn-compact {
+    @apply px-2 py-1 text-2xs focus:outline-none focus:ring-1;
+  }
+
+  .btn-primary {
+    @apply bg-accent text-text-inverse hover:bg-accent-hover focus:ring-accent;
+  }
+
+  .btn-secondary {
+    @apply bg-surface border border-border text-text-secondary hover:bg-surface-hover focus:ring-accent;
+  }
+
+  .btn-success {
+    @apply bg-success text-text-inverse hover:bg-success-hover focus:ring-success;
+  }
+
+  .btn-danger {
+    @apply bg-danger text-text-inverse hover:bg-danger-hover focus:ring-danger;
+  }
+}
