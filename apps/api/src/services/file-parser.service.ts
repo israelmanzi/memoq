@@ -1,4 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
+import { parseDocx, type DocxStructureMetadata } from './docx-parser.service.js';
+import { parsePdf } from './pdf-parser.service.js';
 
 export interface ParsedSegment {
   sourceText: string;
@@ -10,6 +12,9 @@ export interface ParseResult {
   sourceLanguage?: string;
   targetLanguage?: string;
   originalName?: string;
+  structureMetadata?: DocxStructureMetadata;
+  pageCount?: number;
+  isBinary?: boolean;
 }
 
 /**
@@ -35,6 +40,28 @@ export async function parseFile(
 
     case 'sdlxliff':
       return parseXliff(buffer, filename); // SDL XLIFF is similar enough
+
+    case 'docx':
+    case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': {
+      const docxResult = await parseDocx(buffer);
+      return {
+        segments: docxResult.segments,
+        structureMetadata: docxResult.structureMetadata,
+        isBinary: true,
+        originalName: filename,
+      };
+    }
+
+    case 'pdf':
+    case 'application/pdf': {
+      const pdfResult = await parsePdf(buffer);
+      return {
+        segments: pdfResult.segments,
+        pageCount: pdfResult.pageCount,
+        isBinary: true,
+        originalName: filename,
+      };
+    }
 
     default:
       throw new Error(`Unsupported file type: ${fileType}`);
@@ -346,10 +373,21 @@ export function detectFileType(filename: string, mimeType?: string): string {
     return 'txt';
   }
 
+  if (ext === 'docx') {
+    return 'docx';
+  }
+
+  if (ext === 'pdf') {
+    return 'pdf';
+  }
+
   // Check mime type
   if (mimeType) {
     if (mimeType.includes('xliff')) return 'xliff';
     if (mimeType === 'text/plain') return 'txt';
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      return 'docx';
+    if (mimeType === 'application/pdf') return 'pdf';
   }
 
   // Default to txt for unknown
@@ -360,5 +398,12 @@ export function detectFileType(filename: string, mimeType?: string): string {
  * Get supported file extensions
  */
 export function getSupportedExtensions(): string[] {
-  return ['txt', 'xliff', 'xlf', 'sdlxliff'];
+  return ['txt', 'xliff', 'xlf', 'sdlxliff', 'docx', 'pdf'];
+}
+
+/**
+ * Check if a file type is binary
+ */
+export function isBinaryFileType(fileType: string): boolean {
+  return ['docx', 'pdf'].includes(fileType.toLowerCase());
 }
