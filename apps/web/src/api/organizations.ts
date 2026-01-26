@@ -22,6 +22,36 @@ export interface OrgMember {
   };
 }
 
+export interface OrgInvitation {
+  id: string;
+  email: string;
+  role: OrgRole;
+  expiresAt: string;
+  createdAt: string;
+  isExpired: boolean;
+  invitedByUser?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export interface InvitationDetails {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  isValid: boolean;
+  expiresAt: string;
+  organization: {
+    id: string;
+    name: string;
+  } | null;
+  invitedBy: {
+    name: string;
+  } | null;
+}
+
 export const orgsApi = {
   list: () => api.get<{ items: (Organization & { role: OrgRole })[] }>('/organizations'),
 
@@ -39,4 +69,29 @@ export const orgsApi = {
 
   removeMember: (orgId: string, memberId: string) =>
     api.delete(`/organizations/${orgId}/members/${memberId}`),
+
+  // Invitations
+  listInvitations: (orgId: string) =>
+    api.get<{ items: OrgInvitation[] }>(`/organizations/${orgId}/invitations`),
+
+  sendInvitation: (orgId: string, data: AddMemberInput) =>
+    api.post<{ id: string; email: string; role: OrgRole; expiresAt: string; emailSent: boolean }>(
+      `/organizations/${orgId}/invitations`,
+      data
+    ),
+
+  cancelInvitation: (orgId: string, invitationId: string) =>
+    api.delete(`/organizations/${orgId}/invitations/${invitationId}`),
+
+  resendInvitation: (orgId: string, invitationId: string) =>
+    api.post<{ id: string; email: string; role: OrgRole; expiresAt: string; emailSent: boolean }>(
+      `/organizations/${orgId}/invitations/${invitationId}/resend`
+    ),
+
+  // Public invitation endpoints
+  getInvitation: (token: string) =>
+    api.get<InvitationDetails>(`/invitations/${token}`),
+
+  acceptInvitation: (token: string) =>
+    api.post<{ success: boolean; orgId: string; message: string }>(`/invitations/${token}/accept`),
 };
