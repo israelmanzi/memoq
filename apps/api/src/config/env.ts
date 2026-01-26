@@ -28,6 +28,21 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().default('OXY <noreply@resend.dev>'),
   // App URL for email links
   APP_URL: z.string().default('http://localhost:5063'),
+  // MinIO / S3 Storage
+  MINIO_ENDPOINT: z.string().default('localhost'),
+  MINIO_PORT: z.coerce.number().default(9000),
+  MINIO_USE_SSL: z.string().transform((v) => v === 'true').default('false'),
+  MINIO_ACCESS_KEY: z.string().default('minioadmin'),
+  MINIO_SECRET_KEY: z.string().default('minioadmin'),
+  MINIO_BUCKET: z.string().default('oxy-documents'),
+  // Rate Limiting
+  RATE_LIMIT_MAX: z.coerce.number().default(100),
+  RATE_LIMIT_WINDOW: z.coerce.number().default(60000), // 1 minute in ms
+  // Cache TTLs (in seconds)
+  CACHE_TM_MATCH_TTL: z.coerce.number().default(3600), // 1 hour
+  CACHE_TB_MATCH_TTL: z.coerce.number().default(3600), // 1 hour
+  // Session TTL (in seconds)
+  SESSION_TTL: z.coerce.number().default(604800), // 7 days
 });
 
 const parsed = envSchema.safeParse(process.env);
