@@ -130,6 +130,51 @@ export async function sendMFAEnabledEmail(email: string, name: string): Promise<
 }
 
 /**
+ * Send organization invitation email
+ */
+export async function sendInvitationEmail(
+  email: string,
+  inviterName: string,
+  orgName: string,
+  role: string,
+  token: string
+): Promise<void> {
+  const acceptUrl = `${env.APP_URL}/invitations/${token}`;
+  const roleDisplay = role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You're invited to join ${escapeHtml(orgName)}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: #f8f9fa; padding: 30px; border-radius: 8px;">
+    <h1 style="color: #1a1a1a; margin-top: 0;">You're invited!</h1>
+    <p><strong>${escapeHtml(inviterName)}</strong> has invited you to join <strong>${escapeHtml(orgName)}</strong> on OXY as a <strong>${roleDisplay}</strong>.</p>
+    <p>OXY is a translation management system that helps teams collaborate on translation projects.</p>
+    <p style="text-align: center; margin: 30px 0;">
+      <a href="${acceptUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500;">Accept Invitation</a>
+    </p>
+    <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
+    <p style="color: #666; font-size: 14px; word-break: break-all;">${acceptUrl}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+    <p style="color: #666; font-size: 12px;">This invitation expires in 7 days. If you don't want to join, you can safely ignore this email.</p>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  await sendEmail({
+    to: email,
+    subject: `${inviterName} invited you to join ${orgName} on OXY`,
+    html,
+  });
+}
+
+/**
  * Send MFA disabled notification
  */
 export async function sendMFADisabledEmail(email: string, name: string): Promise<void> {

@@ -309,8 +309,13 @@ export interface CreateDocumentInput {
   projectId: string;
   name: string;
   fileType: string;
-  originalContent?: string;
+  originalContent?: string | null;
   createdBy?: string;
+  // Binary file support
+  fileStorageKey?: string | null;
+  structureMetadata?: unknown | null;
+  pageCount?: number | null;
+  isBinaryFormat?: boolean;
 }
 
 export async function createDocument(input: CreateDocumentInput): Promise<Document> {
@@ -322,6 +327,10 @@ export async function createDocument(input: CreateDocumentInput): Promise<Docume
       fileType: input.fileType,
       originalContent: input.originalContent,
       createdBy: input.createdBy,
+      fileStorageKey: input.fileStorageKey,
+      structureMetadata: input.structureMetadata,
+      pageCount: input.pageCount,
+      isBinaryFormat: input.isBinaryFormat ?? false,
     })
     .returning();
 
@@ -330,6 +339,16 @@ export async function createDocument(input: CreateDocumentInput): Promise<Docume
   }
 
   return doc as Document;
+}
+
+export async function updateDocumentStorageKey(
+  documentId: string,
+  fileStorageKey: string
+): Promise<void> {
+  await db
+    .update(documents)
+    .set({ fileStorageKey })
+    .where(eq(documents.id, documentId));
 }
 
 export async function findDocumentById(id: string): Promise<Document | null> {
@@ -753,12 +772,18 @@ export async function getProjectStats(projectId: string) {
     ).length;
   }
 
+  // Calculate progress: show at least 1% if any work is done, 0% only if truly empty
+  let progress = 0;
+  if (totalSegments > 0 && translatedSegments > 0) {
+    progress = Math.max(1, Math.round((translatedSegments / totalSegments) * 100));
+  }
+
   return {
     documentCount: docCount?.count ?? 0,
     totalSegments,
     translatedSegments,
     reviewedSegments,
-    progress: totalSegments > 0 ? Math.round((translatedSegments / totalSegments) * 100) : 0,
+    progress,
   };
 }
 
@@ -771,18 +796,20 @@ export async function getDocumentStats(documentId: string) {
     byStatus[status] = (byStatus[status] ?? 0) + 1;
   }
 
+  const translatedCount = segs.filter(
+    (s) => s.status && !['untranslated', 'draft'].includes(s.status)
+  ).length;
+
+  // Calculate progress: show at least 1% if any work is done, 0% only if truly empty
+  let progress = 0;
+  if (segs.length > 0 && translatedCount > 0) {
+    progress = Math.max(1, Math.round((translatedCount / segs.length) * 100));
+  }
+
   return {
     totalSegments: segs.length,
     byStatus,
-    progress:
-      segs.length > 0
-        ? Math.round(
-            (segs.filter((s) => s.status && !['untranslated', 'draft'].includes(s.status))
-              .length /
-              segs.length) *
-              100
-          )
-        : 0,
+    progress,
   };
 }
 

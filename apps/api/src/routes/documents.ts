@@ -9,6 +9,7 @@ import {
   findDocumentById,
   listProjectDocuments,
   updateDocumentStatus,
+  updateDocumentStorageKey,
   deleteDocument,
   createSegmentsBulk,
   findSegmentById,
@@ -23,11 +24,13 @@ import {
   propagateTranslation,
 } from '../services/project.service.js';
 import { getMembership } from '../services/org.service.js';
-import { findMatches, addTranslationUnit } from '../services/tm.service.js';
+import { findMatches, addTranslationUnit, concordanceSearch } from '../services/tm.service.js';
 import { findTermsInText } from '../services/tb.service.js';
 import { listProjectResources } from '../services/project.service.js';
-import { parseFile, detectFileType, getSupportedExtensions } from '../services/file-parser.service.js';
-import { exportDocument, getSupportedExportFormats, type ExportFormat } from '../services/file-exporter.service.js';
+import { parseFile, detectFileType, getSupportedExtensions, isBinaryFileType } from '../services/file-parser.service.js';
+import { exportDocument, getSupportedExportFormats, getExportFormatsForFileType, type ExportFormat } from '../services/file-exporter.service.js';
+import { exportToPdf } from '../services/pdf-exporter.service.js';
+import { uploadFile, getFile, generateStorageKey, getMimeType } from '../services/storage.service.js';
 import { logActivity } from '../services/activity.service.js';
 
 const createDocumentSchema = z.object({
@@ -196,14 +199,36 @@ export async function documentRoutes(app: FastifyInstance) {
           return reply.status(400).send({ error: 'No segments found in the file' });
         }
 
-        // Create document
+        // Handle binary vs text file storage
+        const isBinary = parseResult.isBinary || isBinaryFileType(fileType);
+        let fileStorageKey: string | null = null;
+
+        // Create document first to get ID for storage key
         const doc = await createDocument({
           projectId,
           name: filename,
           fileType,
-          originalContent: buffer.toString('utf-8'),
+          originalContent: isBinary ? null : buffer.toString('utf-8'),
           createdBy: userId,
+          // Binary file fields
+          fileStorageKey: null, // Will update after upload
+          structureMetadata: parseResult.structureMetadata || null,
+          pageCount: parseResult.pageCount || null,
+          isBinaryFormat: isBinary,
         });
+
+        // Upload binary files to object storage
+        if (isBinary) {
+          try {
+            fileStorageKey = generateStorageKey(doc.id, filename);
+            await uploadFile(fileStorageKey, buffer, getMimeType(fileType));
+            // Update document with storage key
+            await updateDocumentStorageKey(doc.id, fileStorageKey);
+          } catch (storageError: any) {
+            request.log.warn({ err: storageError }, 'Failed to upload to storage, falling back to database');
+            // Storage not available - could fall back to base64 in DB if needed
+          }
+        }
 
         // Create segments
         await createSegmentsBulk(doc.id, parseResult.segments);
@@ -268,9 +293,53 @@ export async function documentRoutes(app: FastifyInstance) {
         'text/plain',
         'application/xliff+xml',
         'application/x-xliff+xml',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/pdf',
       ],
     });
   });
+
+  // Get original file (for PDF viewer and binary file download)
+  app.get<{ Params: { documentId: string } }>(
+    '/:documentId/original-file',
+    async (request, reply) => {
+      const { documentId } = request.params;
+      const { userId } = request.user;
+
+      const doc = await findDocumentById(documentId);
+      if (!doc) {
+        return reply.status(404).send({ error: 'Document not found' });
+      }
+
+      const project = await findProjectById(doc.projectId);
+      if (!project) {
+        return reply.status(404).send({ error: 'Project not found' });
+      }
+
+      const membership = await getMembership(project.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      // Check if file is stored in object storage
+      if (!doc.fileStorageKey) {
+        return reply.status(404).send({ error: 'Original file not available' });
+      }
+
+      try {
+        const buffer = await getFile(doc.fileStorageKey);
+        const mimeType = getMimeType(doc.fileType);
+
+        reply
+          .header('Content-Type', mimeType)
+          .header('Content-Disposition', `inline; filename="${doc.name}"`)
+          .send(buffer);
+      } catch (error: any) {
+        request.log.error({ err: error }, 'Failed to retrieve file from storage');
+        return reply.status(500).send({ error: 'Failed to retrieve file' });
+      }
+    }
+  );
 
   // List project documents
   app.get<{ Params: { projectId: string }; Querystring: { limit?: string; offset?: string } }>(
@@ -341,19 +410,29 @@ export async function documentRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { documentId } = request.params;
       const { userId } = request.user;
-      const format = (request.query.format || 'xliff') as ExportFormat;
-
-      // Validate format
-      const supportedFormats = getSupportedExportFormats();
-      if (!supportedFormats.includes(format)) {
-        return reply.status(400).send({
-          error: `Unsupported export format. Supported: ${supportedFormats.join(', ')}`,
-        });
-      }
+      const format = (request.query.format || 'xliff') as ExportFormat | 'pdf';
 
       const doc = await findDocumentById(documentId);
       if (!doc) {
         return reply.status(404).send({ error: 'Document not found' });
+      }
+
+      // Validate format based on document type
+      const availableFormats = getExportFormatsForFileType(doc.fileType);
+      // Add PDF export option for all documents
+      const allFormats = [...availableFormats, 'pdf'];
+
+      if (!allFormats.includes(format)) {
+        return reply.status(400).send({
+          error: `Unsupported export format. Available for this document: ${allFormats.join(', ')}`,
+        });
+      }
+
+      // DOCX export only for DOCX documents
+      if (format === 'docx' && doc.fileType !== 'docx') {
+        return reply.status(400).send({
+          error: 'DOCX export is only available for DOCX documents',
+        });
       }
 
       const project = await findProjectById(doc.projectId);
@@ -369,22 +448,38 @@ export async function documentRoutes(app: FastifyInstance) {
       // Get all segments
       const segments = await listDocumentSegments(documentId);
 
-      // Export the document
-      const result = exportDocument(
-        {
-          filename: doc.name,
-          sourceLanguage: project.sourceLanguage,
-          targetLanguage: project.targetLanguage,
+      let result: { content: string | Buffer; mimeType: string; extension: string };
+
+      if (format === 'pdf') {
+        // Use PDF exporter for PDF output
+        result = await exportToPdf({
           segments: segments.map((seg) => ({
             sourceText: seg.sourceText,
             targetText: seg.targetText,
-            status: seg.status ?? undefined,
           })),
-          originalContent: doc.originalContent,
-          fileType: doc.fileType,
-        },
-        format
-      );
+          filename: doc.name,
+          sourceLanguage: project.sourceLanguage,
+          targetLanguage: project.targetLanguage,
+        });
+      } else {
+        // Use standard document exporter
+        result = await exportDocument(
+          {
+            filename: doc.name,
+            sourceLanguage: project.sourceLanguage,
+            targetLanguage: project.targetLanguage,
+            segments: segments.map((seg) => ({
+              sourceText: seg.sourceText,
+              targetText: seg.targetText,
+              status: seg.status ?? undefined,
+            })),
+            originalContent: doc.originalContent,
+            fileType: doc.fileType,
+            structureMetadata: doc.structureMetadata as any,
+          },
+          format as ExportFormat
+        );
+      }
 
       // Generate export filename
       const baseName = doc.name.replace(/\.[^.]+$/, '');
@@ -642,6 +737,57 @@ export async function documentRoutes(app: FastifyInstance) {
       }
 
       return reply.send({ ...segment, matches, termMatches });
+    }
+  );
+
+  // Concordance search - find TM entries containing a word/phrase
+  app.get<{ Params: { documentId: string }; Querystring: { q: string; searchIn?: string } }>(
+    '/:documentId/concordance',
+    async (request, reply) => {
+      const { documentId } = request.params;
+      const { q, searchIn } = request.query;
+      const { userId } = request.user;
+
+      if (!q || q.trim().length < 2) {
+        return reply.status(400).send({ error: 'Query must be at least 2 characters' });
+      }
+
+      const doc = await findDocumentById(documentId);
+      if (!doc) {
+        return reply.status(404).send({ error: 'Document not found' });
+      }
+
+      const project = await findProjectById(doc.projectId);
+      if (!project) {
+        return reply.status(404).send({ error: 'Project not found' });
+      }
+
+      const membership = await getMembership(project.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      // Get TM IDs from project resources
+      const resources = await listProjectResources(project.id);
+      const tmIds = resources
+        .filter((r) => r.resourceType === 'tm')
+        .map((r) => r.resourceId);
+
+      if (tmIds.length === 0) {
+        return reply.send({ items: [], message: 'No translation memories attached to this project' });
+      }
+
+      const searchInOption = searchIn === 'source' || searchIn === 'target' ? searchIn : 'both';
+
+      const results = await concordanceSearch({
+        tmIds,
+        query: q.trim(),
+        searchIn: searchInOption,
+        caseSensitive: false,
+        maxResults: 50,
+      });
+
+      return reply.send({ items: results });
     }
   );
 
