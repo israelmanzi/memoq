@@ -1,8 +1,12 @@
+import dns from "node:dns";
 import { drizzle, PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { Sql } from "postgres";
 import { env } from "../config/env.js";
 import { logger } from "../config/logger.js";
 import * as schema from "./schema.js";
+
+// Force IPv4 first - Docker DNS can return IPv6 which may not route correctly
+dns.setDefaultResultOrder("ipv4first");
 
 let client: Sql | null = null;
 export let db: PostgresJsDatabase<typeof schema>;
@@ -43,4 +47,4 @@ export async function initDb(retries = 10, delay = 2000): Promise<void> {
 }
 
 // Re-export schema for convenience
-export * from './schema.js';
+export * from "./schema.js";
