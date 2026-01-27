@@ -1,7 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
 import { z } from 'zod';
-import { WORKFLOW_STATUSES, SEGMENT_STATUSES } from '@oxy/shared';
+import { WORKFLOW_STATUSES, SEGMENT_STATUSES, DOCUMENT_ROLES } from '@oxy/shared';
+import {
+  assignUserToDocument,
+  listDocumentAssignments,
+  removeDocumentAssignment,
+  canUserEditDocument,
+  getAllowedSegmentStatuses,
+  getAssignmentsForDocuments,
+  filterDocumentsByAssignment,
+} from '../services/document-assignment.service.js';
+import type { DocumentAssignmentFilter } from '@oxy/shared';
 import {
   findProjectById,
   getProjectMembership,
@@ -300,7 +310,8 @@ export async function documentRoutes(app: FastifyInstance) {
   });
 
   // Get original file (for PDF viewer and binary file download)
-  app.get<{ Params: { documentId: string } }>(
+  // Accepts token via query param for PDF viewer (can't set headers)
+  app.get<{ Params: { documentId: string }; Querystring: { token?: string } }>(
     '/:documentId/original-file',
     async (request, reply) => {
       const { documentId } = request.params;
@@ -342,13 +353,17 @@ export async function documentRoutes(app: FastifyInstance) {
   );
 
   // List project documents
-  app.get<{ Params: { projectId: string }; Querystring: { limit?: string; offset?: string } }>(
+  app.get<{
+    Params: { projectId: string };
+    Querystring: { limit?: string; offset?: string; filter?: DocumentAssignmentFilter };
+  }>(
     '/project/:projectId',
     async (request, reply) => {
       const { projectId } = request.params;
       const { userId } = request.user;
       const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
       const offset = parseInt(request.query.offset || '0', 10);
+      const filter = request.query.filter || 'all';
 
       const project = await findProjectById(projectId);
       if (!project) {
@@ -360,7 +375,8 @@ export async function documentRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
-      const result = await listProjectDocuments(projectId, { limit, offset });
+      // Get all documents first (we need to filter on assignments which requires loading them all)
+      const result = await listProjectDocuments(projectId, { limit: 1000, offset: 0 });
 
       // Add stats to each document
       const docsWithStats = await Promise.all(
@@ -370,7 +386,77 @@ export async function documentRoutes(app: FastifyInstance) {
         })
       );
 
-      return reply.send({ items: docsWithStats, total: result.total });
+      // Get assignment data for all documents
+      const documentIds = docsWithStats.map((d) => d.id);
+      const assignmentsMap = await getAssignmentsForDocuments(documentIds);
+
+      // Build workflow status and type maps for filtering
+      const workflowStatusMap = new Map<string, string>();
+      const workflowTypeMap = new Map<string, string>();
+      for (const doc of docsWithStats) {
+        workflowStatusMap.set(doc.id, doc.workflowStatus);
+        // All documents in a project share the same workflow type
+        workflowTypeMap.set(doc.id, project.workflowType);
+      }
+
+      // Apply assignment filter
+      const filteredIds = await filterDocumentsByAssignment(
+        documentIds,
+        userId,
+        filter,
+        workflowStatusMap,
+        workflowTypeMap
+      );
+
+      // Enrich documents with assignment info
+      const enrichedDocs = docsWithStats
+        .filter((doc) => filteredIds.has(doc.id))
+        .map((doc) => {
+          const assignments = assignmentsMap.get(doc.id) ?? {
+            translator: null,
+            reviewer_1: null,
+            reviewer_2: null,
+          };
+
+          // Determine if user is assigned and to what role
+          const myRole =
+            assignments.translator?.userId === userId
+              ? 'translator'
+              : assignments.reviewer_1?.userId === userId
+                ? 'reviewer_1'
+                : assignments.reviewer_2?.userId === userId
+                  ? 'reviewer_2'
+                  : null;
+
+          // Determine if it's awaiting user's action
+          const activeRole =
+            doc.workflowStatus === 'translation'
+              ? 'translator'
+              : doc.workflowStatus === 'review_1'
+                ? 'reviewer_1'
+                : doc.workflowStatus === 'review_2'
+                  ? 'reviewer_2'
+                  : null;
+
+          const isAwaitingMyAction = myRole !== null && myRole === activeRole;
+
+          return {
+            ...doc,
+            assignments,
+            isAssignedToMe: myRole !== null,
+            myRole,
+            isAwaitingMyAction,
+          };
+        });
+
+      // Apply pagination to filtered results
+      const paginatedDocs = enrichedDocs.slice(offset, offset + limit);
+
+      return reply.send({
+        items: paginatedDocs,
+        total: enrichedDocs.length,
+        filter,
+      });
     }
   );
 
@@ -396,8 +482,48 @@ export async function documentRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
+      const projectMembership = await getProjectMembership(project.id, userId);
+      const isAdminOrPM =
+        membership.role === 'admin' || projectMembership?.role === 'project_manager';
+
       const stats = await getDocumentStats(documentId);
-      return reply.send({ ...doc, ...stats });
+
+      // Check edit permissions and include in response
+      const editPermission = await canUserEditDocument(
+        documentId,
+        userId,
+        doc.workflowStatus,
+        isAdminOrPM
+      );
+
+      // Get assignment info for this document
+      const assignmentsMap = await getAssignmentsForDocuments([documentId]);
+      const assignments = assignmentsMap.get(documentId) ?? {
+        translator: null,
+        reviewer_1: null,
+        reviewer_2: null,
+      };
+
+      // Determine user's role
+      const myRole =
+        assignments.translator?.userId === userId
+          ? 'translator'
+          : assignments.reviewer_1?.userId === userId
+            ? 'reviewer_1'
+            : assignments.reviewer_2?.userId === userId
+              ? 'reviewer_2'
+              : null;
+
+      return reply.send({
+        ...doc,
+        ...stats,
+        canEdit: editPermission.allowed,
+        editRestrictionReason: editPermission.reason,
+        workflowType: project.workflowType,
+        assignments,
+        myRole,
+        isAdminOrPM,
+      });
     }
   );
 
@@ -813,6 +939,22 @@ export async function documentRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
+      const projectMembership = await getProjectMembership(project.id, userId);
+      const isAdminOrPM =
+        membership.role === 'admin' || projectMembership?.role === 'project_manager';
+
+      // Check if user can edit based on assignment
+      const canEdit = await canUserEditDocument(
+        documentId,
+        userId,
+        doc.workflowStatus,
+        isAdminOrPM
+      );
+
+      if (!canEdit.allowed) {
+        return reply.status(403).send({ error: canEdit.reason });
+      }
+
       const segment = await findSegmentById(segmentId);
       if (!segment || segment.documentId !== documentId) {
         return reply.status(404).send({ error: 'Segment not found' });
@@ -826,7 +968,18 @@ export async function documentRoutes(app: FastifyInstance) {
         });
       }
 
-      const finalStatus = parsed.data.status ?? 'translated';
+      // Validate status based on workflow stage
+      const allowedStatuses = getAllowedSegmentStatuses(doc.workflowStatus, isAdminOrPM);
+      const requestedStatus = parsed.data.status ?? 'translated';
+
+      if (!allowedStatuses.includes(requestedStatus)) {
+        return reply.status(400).send({
+          error: `Cannot set status to '${requestedStatus}' during ${doc.workflowStatus} stage`,
+          allowedStatuses,
+        });
+      }
+
+      const finalStatus = requestedStatus;
       const oldStatus = segment.status ?? 'untranslated';
 
       const updated = await updateSegment(segmentId, {
@@ -932,6 +1085,22 @@ export async function documentRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Not a member of this organization' });
       }
 
+      const projectMembership = await getProjectMembership(project.id, userId);
+      const isAdminOrPM =
+        membership.role === 'admin' || projectMembership?.role === 'project_manager';
+
+      // Check if user can edit based on assignment
+      const canEdit = await canUserEditDocument(
+        documentId,
+        userId,
+        doc.workflowStatus,
+        isAdminOrPM
+      );
+
+      if (!canEdit.allowed) {
+        return reply.status(403).send({ error: canEdit.reason });
+      }
+
       const parsed = bulkUpdateSegmentsSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(400).send({
@@ -951,6 +1120,236 @@ export async function documentRoutes(app: FastifyInstance) {
       const newWorkflowStatus = await refreshDocumentWorkflowStatus(documentId);
 
       return reply.send({ updated: count, documentWorkflowStatus: newWorkflowStatus });
+    }
+  );
+
+  // ============ Document Assignments ============
+
+  // List assignments for a document
+  app.get<{ Params: { documentId: string } }>(
+    '/:documentId/assignments',
+    async (request, reply) => {
+      const { documentId } = request.params;
+      const { userId } = request.user;
+
+      const doc = await findDocumentById(documentId);
+      if (!doc) {
+        return reply.status(404).send({ error: 'Document not found' });
+      }
+
+      const project = await findProjectById(doc.projectId);
+      if (!project) {
+        return reply.status(404).send({ error: 'Project not found' });
+      }
+
+      const membership = await getMembership(project.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      const assignments = await listDocumentAssignments(documentId);
+      return reply.send({ items: assignments });
+    }
+  );
+
+  // Assign user to document role
+  app.post<{ Params: { documentId: string } }>(
+    '/:documentId/assignments',
+    async (request, reply) => {
+      const { documentId } = request.params;
+      const { userId } = request.user;
+
+      const doc = await findDocumentById(documentId);
+      if (!doc) {
+        return reply.status(404).send({ error: 'Document not found' });
+      }
+
+      const project = await findProjectById(doc.projectId);
+      if (!project) {
+        return reply.status(404).send({ error: 'Project not found' });
+      }
+
+      const membership = await getMembership(project.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      const projectMembership = await getProjectMembership(project.id, userId);
+      const isAdminOrPM =
+        membership.role === 'admin' || projectMembership?.role === 'project_manager';
+
+      if (!isAdminOrPM) {
+        return reply.status(403).send({ error: 'Only admins and project managers can assign users' });
+      }
+
+      const schema = z.object({
+        userId: z.string().uuid(),
+        role: z.enum(DOCUMENT_ROLES),
+      });
+
+      const parsed = schema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: 'Validation failed',
+          details: parsed.error.flatten().fieldErrors,
+        });
+      }
+
+      // Verify target user is a member of the organization
+      const targetMembership = await getMembership(project.orgId, parsed.data.userId);
+      if (!targetMembership) {
+        return reply.status(400).send({ error: 'User is not a member of this organization' });
+      }
+
+      const assignment = await assignUserToDocument({
+        documentId,
+        userId: parsed.data.userId,
+        role: parsed.data.role,
+        assignedBy: userId,
+      });
+
+      await logActivity({
+        entityType: 'document',
+        entityId: documentId,
+        action: 'assign',
+        userId,
+        orgId: project.orgId,
+        projectId: project.id,
+        documentId,
+        metadata: { assignedUserId: parsed.data.userId, role: parsed.data.role },
+      });
+
+      return reply.status(201).send(assignment);
+    }
+  );
+
+  // Self-assign (claim a role)
+  app.post<{ Params: { documentId: string } }>(
+    '/:documentId/assignments/claim',
+    async (request, reply) => {
+      const { documentId } = request.params;
+      const { userId } = request.user;
+
+      const doc = await findDocumentById(documentId);
+      if (!doc) {
+        return reply.status(404).send({ error: 'Document not found' });
+      }
+
+      const project = await findProjectById(doc.projectId);
+      if (!project) {
+        return reply.status(404).send({ error: 'Project not found' });
+      }
+
+      const membership = await getMembership(project.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      const schema = z.object({
+        role: z.enum(DOCUMENT_ROLES),
+      });
+
+      const parsed = schema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: 'Validation failed',
+          details: parsed.error.flatten().fieldErrors,
+        });
+      }
+
+      // Check if user's org role allows claiming this document role
+      // translator org role -> can claim translator document role
+      // reviewer org role -> can claim reviewer_1 or reviewer_2 document role
+      const roleMapping: Record<string, string[]> = {
+        translator: ['translator'],
+        reviewer: ['reviewer_1', 'reviewer_2'],
+        project_manager: ['translator', 'reviewer_1', 'reviewer_2'],
+        admin: ['translator', 'reviewer_1', 'reviewer_2'],
+      };
+
+      const allowedRoles = roleMapping[membership.role] ?? [];
+      if (!allowedRoles.includes(parsed.data.role)) {
+        return reply.status(403).send({
+          error: `Your organization role (${membership.role}) cannot claim the ${parsed.data.role} role`,
+        });
+      }
+
+      const assignment = await assignUserToDocument({
+        documentId,
+        userId,
+        role: parsed.data.role,
+        assignedBy: userId,
+      });
+
+      await logActivity({
+        entityType: 'document',
+        entityId: documentId,
+        action: 'claim',
+        userId,
+        orgId: project.orgId,
+        projectId: project.id,
+        documentId,
+        metadata: { role: parsed.data.role },
+      });
+
+      return reply.status(201).send(assignment);
+    }
+  );
+
+  // Remove assignment
+  app.delete<{ Params: { documentId: string; role: string } }>(
+    '/:documentId/assignments/:role',
+    async (request, reply) => {
+      const { documentId, role } = request.params;
+      const { userId } = request.user;
+
+      const doc = await findDocumentById(documentId);
+      if (!doc) {
+        return reply.status(404).send({ error: 'Document not found' });
+      }
+
+      const project = await findProjectById(doc.projectId);
+      if (!project) {
+        return reply.status(404).send({ error: 'Project not found' });
+      }
+
+      const membership = await getMembership(project.orgId, userId);
+      if (!membership) {
+        return reply.status(403).send({ error: 'Not a member of this organization' });
+      }
+
+      // Validate role parameter
+      if (!DOCUMENT_ROLES.includes(role as any)) {
+        return reply.status(400).send({ error: 'Invalid role' });
+      }
+
+      const projectMembership = await getProjectMembership(project.id, userId);
+      const isAdminOrPM =
+        membership.role === 'admin' || projectMembership?.role === 'project_manager';
+
+      // Only admins/PMs can remove assignments (or we could allow self-unassign)
+      if (!isAdminOrPM) {
+        return reply.status(403).send({ error: 'Only admins and project managers can remove assignments' });
+      }
+
+      const removed = await removeDocumentAssignment(documentId, role as any);
+
+      if (!removed) {
+        return reply.status(404).send({ error: 'Assignment not found' });
+      }
+
+      await logActivity({
+        entityType: 'document',
+        entityId: documentId,
+        action: 'unassign',
+        userId,
+        orgId: project.orgId,
+        projectId: project.id,
+        documentId,
+        metadata: { role },
+      });
+
+      return reply.status(204).send();
     }
   );
 }
