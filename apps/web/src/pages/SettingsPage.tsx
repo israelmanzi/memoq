@@ -91,6 +91,7 @@ function MembersTab({
   const invitations = invitationsData?.items ?? [];
   const pendingInvitations = invitations.filter(inv => !inv.isExpired);
   const canManage = ['admin', 'project_manager'].includes(userRole);
+  const canRemoveMembers = userRole === 'admin';
 
   const removeMutation = useMutation({
     mutationFn: (memberId: string) => orgsApi.removeMember(orgId, memberId),
@@ -186,7 +187,7 @@ function MembersTab({
                   <span className="px-2 py-0.5 text-2xs font-medium bg-surface-panel text-text-secondary">
                     {formatOrgRole(member.role)}
                   </span>
-                  {canManage && member.user.id !== currentUserId && (
+                  {canRemoveMembers && member.user.id !== currentUserId && (
                     <button
                       onClick={() => removeMutation.mutate(member.user.id)}
                       disabled={removeMutation.isPending}
