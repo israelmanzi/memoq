@@ -1,38 +1,45 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import { env } from '../config/env.js';
-import { logger } from '../config/logger.js';
-import * as schema from './schema.js';
+import { drizzle, PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import postgres, { Sql } from "postgres";
+import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
+import * as schema from "./schema.js";
 
-const client = postgres(env.DATABASE_URL, {
-  max: 10,
-  idle_timeout: 20,
-  connect_timeout: 30,
-});
+let client: Sql | null = null;
+export let db: PostgresJsDatabase<typeof schema>;
 
-export const db = drizzle(client, { schema });
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number) {
+    return new Promise((res) => setTimeout(res, ms));
 }
 
-export async function checkConnection(retries = 5, delay = 3000): Promise<void> {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      await client`SELECT 1`;
-      logger.info('Database connected');
-      return;
-    } catch (error) {
-      logger.warn({ err: error, attempt, retries }, 'Database connection attempt failed');
-      if (attempt === retries) {
-        logger.error({ err: error }, 'Database connection failed after all retries');
-        throw error;
-      }
-      logger.info(`Retrying database connection in ${delay / 1000}s...`);
-      await sleep(delay);
-      delay = Math.min(delay * 1.5, 15000); // exponential backoff, max 15s
+export async function initDb(retries = 10, delay = 2000): Promise<void> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            client = postgres(env.DATABASE_URL, {
+                max: 10,
+                idle_timeout: 20,
+                connect_timeout: 10,
+            });
+
+            await client`select 1`;
+
+            db = drizzle(client, { schema });
+
+            logger.info("Database connected");
+            return;
+        } catch (err) {
+            logger.warn({ err, attempt }, "Database connection failed");
+
+            if (client) {
+                await client.end({ timeout: 5 });
+                client = null;
+            }
+
+            if (attempt === retries) throw err;
+
+            await sleep(delay);
+            delay = Math.min(delay * 1.5, 15000);
+        }
     }
-  }
 }
 
 // Re-export schema for convenience
