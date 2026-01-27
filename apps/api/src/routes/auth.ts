@@ -12,10 +12,13 @@ import {
   verifyEmailToken,
   setPasswordResetToken,
   resetPasswordWithToken,
+  setMfaResetToken,
+  resetMfaWithToken,
 } from '../services/auth.service.js';
 import {
   sendVerificationEmail,
   sendPasswordResetEmail,
+  sendMfaResetEmail,
   isEmailEnabled,
 } from '../services/email.service.js';
 import {
@@ -579,6 +582,73 @@ export async function authRoutes(app: FastifyInstance) {
     }
   });
 
+  // ============ MFA Reset ============
+
+  const mfaResetRequestSchema = z.object({
+    email: z.string().email(),
+  });
+
+  const mfaResetSchema = z.object({
+    token: z.string().min(1),
+    password: z.string().min(8),
+  });
+
+  // Request MFA reset (sends email)
+  app.post('/mfa-reset-request', async (request, reply) => {
+    const parsed = mfaResetRequestSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Validation failed',
+        details: parsed.error.flatten().fieldErrors,
+      });
+    }
+
+    const { email } = parsed.data;
+    const user = await findUserByEmail(email);
+
+    // Always return success to prevent email enumeration
+    if (!user) {
+      return reply.send({ message: 'If your email is registered and MFA is enabled, you will receive a reset email' });
+    }
+
+    // Only send if MFA is actually enabled
+    if (!user.mfaEnabled) {
+      return reply.send({ message: 'If your email is registered and MFA is enabled, you will receive a reset email' });
+    }
+
+    if (isEmailEnabled()) {
+      const token = generateToken();
+      await setMfaResetToken(user.id, token);
+      await sendMfaResetEmail(email, user.name, token);
+    }
+
+    return reply.send({ message: 'If your email is registered and MFA is enabled, you will receive a reset email' });
+  });
+
+  // Complete MFA reset with token and password
+  app.post('/mfa-reset', async (request, reply) => {
+    const parsed = mfaResetSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Validation failed',
+        details: parsed.error.flatten().fieldErrors,
+      });
+    }
+
+    const { token, password } = parsed.data;
+    const result = await resetMfaWithToken(token, password);
+
+    if (!result.success) {
+      return reply.status(400).send({ error: result.error });
+    }
+
+    return reply.send({
+      message: 'MFA has been disabled. You will need to set up MFA again when you log in.',
+    });
+  });
+
   // ============ Session Management ============
 
   // Logout current session
@@ -644,7 +714,7 @@ export async function authRoutes(app: FastifyInstance) {
     onRequest: [app.authenticate],
   }, async (request, reply) => {
     const { sessionId } = request.params;
-    const { tokenId } = request.user;
+    const { userId, tokenId } = request.user;
 
     if (!isRedisEnabled()) {
       return reply.status(400).send({ error: 'Session tracking not enabled' });
@@ -653,6 +723,16 @@ export async function authRoutes(app: FastifyInstance) {
     // Prevent revoking current session via this route
     if (sessionId === tokenId) {
       return reply.status(400).send({ error: 'Use /logout to end current session' });
+    }
+
+    // Verify the session belongs to the current user
+    const session = await import('../services/session.service.js').then(m => m.getSession(sessionId));
+    if (!session) {
+      return reply.status(404).send({ error: 'Session not found' });
+    }
+
+    if (session.userId !== userId) {
+      return reply.status(403).send({ error: 'Cannot revoke sessions belonging to other users' });
     }
 
     await invalidateSession(sessionId);

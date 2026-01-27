@@ -12,6 +12,8 @@ export function LoginPage() {
   const [mfaCode, setMfaCode] = useState('');
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
 
   // MFA Setup state (for users without MFA)
   const [setupToken, setSetupToken] = useState<string | null>(null);
@@ -41,10 +43,26 @@ export function LoginPage() {
       if (err instanceof ApiError) {
         const data = err.data as { error?: string; code?: string };
         if (data.code === 'EMAIL_NOT_VERIFIED') {
-          setError('Please verify your email before logging in. Check your inbox for a verification link.');
+          setShowVerificationPrompt(true);
+          setError('');
         } else {
           setError(data.error ?? 'Login failed');
         }
+      } else {
+        setError('An error occurred');
+      }
+    },
+  });
+
+  const resendVerificationMutation = useMutation({
+    mutationFn: () => authApi.resendVerification(email),
+    onSuccess: () => {
+      setVerificationSent(true);
+    },
+    onError: (err) => {
+      if (err instanceof ApiError) {
+        const data = err.data as { error?: string };
+        setError(data.error ?? 'Failed to send verification email');
       } else {
         setError('An error occurred');
       }
@@ -122,6 +140,8 @@ export function LoginPage() {
     setSetupCode('');
     setBackupCodes(null);
     setError('');
+    setShowVerificationPrompt(false);
+    setVerificationSent(false);
   };
 
   const handleSetupSubmit = (e: React.FormEvent) => {
@@ -163,6 +183,55 @@ export function LoginPage() {
         >
           I've saved my codes, continue
         </button>
+      </div>
+    );
+  }
+
+  // Email verification prompt
+  if (showVerificationPrompt) {
+    return (
+      <div className="bg-surface-alt p-6 border border-border">
+        <h2 className="text-lg font-semibold text-text mb-2">Email verification required</h2>
+
+        {verificationSent ? (
+          <>
+            <div className="mb-4 p-3 bg-success-bg border border-success/20 text-xs text-success">
+              Verification email sent! Please check your inbox and click the verification link.
+            </div>
+            <p className="text-xs text-text-secondary mb-4">
+              Didn't receive the email? Check your spam folder or try again.
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-text-secondary mb-4">
+            Your email address <strong className="text-text">{email}</strong> has not been verified yet.
+            Please check your inbox for a verification link, or request a new one.
+          </p>
+        )}
+
+        {error && (
+          <div className="mb-4 p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
+            {error}
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <button
+            onClick={() => resendVerificationMutation.mutate()}
+            disabled={resendVerificationMutation.isPending}
+            className="w-full py-2 px-4 bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-50 transition-colors"
+          >
+            {resendVerificationMutation.isPending ? 'Sending...' : 'Resend verification email'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleBackToLogin}
+            className="w-full py-2 px-4 text-text-secondary text-sm font-medium hover:text-text"
+          >
+            Back to login
+          </button>
+        </div>
       </div>
     );
   }
@@ -296,6 +365,12 @@ export function LoginPage() {
           >
             Back to login
           </button>
+
+          <div className="text-center pt-2 border-t border-border">
+            <Link to="/mfa-reset-request" className="text-xs text-text-muted hover:text-accent">
+              Lost access to authenticator?
+            </Link>
+          </div>
         </div>
       </form>
     );

@@ -85,6 +85,13 @@ export const authApi = {
   mfaSetupVerify: (setupToken: string, code: string) =>
     api.post<MFASetupLoginResponse>('/auth/mfa-setup-verify', { setupToken, code }),
 
+  // MFA reset (for users who lost their authenticator)
+  mfaResetRequest: (email: string) =>
+    api.post<{ message: string }>('/auth/mfa-reset-request', { email }),
+
+  mfaReset: (token: string, password: string) =>
+    api.post<{ message: string }>('/auth/mfa-reset', { token, password }),
+
   // MFA management
   mfa: {
     getStatus: () => api.get<MFAStatusResponse>('/mfa/status'),

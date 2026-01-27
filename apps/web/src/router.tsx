@@ -7,6 +7,8 @@ import { RegisterPage } from './pages/RegisterPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { MfaResetRequestPage } from './pages/MfaResetRequestPage';
+import { MfaResetPage } from './pages/MfaResetPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
@@ -68,6 +70,21 @@ const resetPasswordRoute = createRoute({
   getParentRoute: () => authRoute,
   path: '/reset-password',
   component: ResetPasswordPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    token: (search.token as string) || '',
+  }),
+});
+
+const mfaResetRequestRoute = createRoute({
+  getParentRoute: () => authRoute,
+  path: '/mfa-reset-request',
+  component: MfaResetRequestPage,
+});
+
+const mfaResetRoute = createRoute({
+  getParentRoute: () => authRoute,
+  path: '/mfa-reset',
+  component: MfaResetPage,
   validateSearch: (search: Record<string, unknown>) => ({
     token: (search.token as string) || '',
   }),
@@ -170,6 +187,8 @@ const routeTree = rootRoute.addChildren([
     verifyEmailRoute,
     forgotPasswordRoute,
     resetPasswordRoute,
+    mfaResetRequestRoute,
+    mfaResetRoute,
   ]),
   protectedRoute.addChildren([
     dashboardRoute,

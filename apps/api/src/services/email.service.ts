@@ -175,6 +175,51 @@ export async function sendInvitationEmail(
 }
 
 /**
+ * Send MFA reset email
+ */
+export async function sendMfaResetEmail(
+  email: string,
+  name: string,
+  token: string
+): Promise<void> {
+  const resetUrl = `${env.APP_URL}/mfa-reset?token=${token}`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset your two-factor authentication</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: #f8f9fa; padding: 30px; border-radius: 8px;">
+    <h1 style="color: #1a1a1a; margin-top: 0;">Reset two-factor authentication</h1>
+    <p>Hi ${escapeHtml(name)},</p>
+    <p>We received a request to reset two-factor authentication on your OXY account. Click the button below to disable MFA and regain access to your account:</p>
+    <p style="text-align: center; margin: 30px 0;">
+      <a href="${resetUrl}" style="display: inline-block; background: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500;">Reset MFA</a>
+    </p>
+    <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
+    <p style="color: #666; font-size: 14px; word-break: break-all;">${resetUrl}</p>
+    <p style="background: #fef3c7; border: 1px solid #f59e0b; padding: 12px; border-radius: 4px; font-size: 14px; color: #92400e;">
+      <strong>Security notice:</strong> You will need to confirm your password to complete this reset. After resetting, you'll need to set up two-factor authentication again before you can use your account.
+    </p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+    <p style="color: #666; font-size: 12px;">This link expires in 1 hour. If you didn't request this reset, please ignore this email and ensure your account is secure.</p>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  await sendEmail({
+    to: email,
+    subject: 'Reset two-factor authentication on your OXY account',
+    html,
+  });
+}
+
+/**
  * Send MFA disabled notification
  */
 export async function sendMFADisabledEmail(email: string, name: string): Promise<void> {

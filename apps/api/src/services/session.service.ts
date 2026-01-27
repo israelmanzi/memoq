@@ -90,6 +90,29 @@ export async function validateSession(tokenId: string): Promise<{ valid: boolean
 }
 
 /**
+ * Get session data by token ID
+ */
+export async function getSession(tokenId: string): Promise<Session | null> {
+  if (!isRedisEnabled()) {
+    return null;
+  }
+
+  const redis = getRedisClient();
+  const sessionKey = `${SESSION_PREFIX}${tokenId}`;
+
+  const data = await redis.get(sessionKey);
+  if (!data) {
+    return null;
+  }
+
+  const sessionData = JSON.parse(data) as SessionMetadata & { userId: string };
+  return {
+    tokenId,
+    ...sessionData,
+  };
+}
+
+/**
  * Invalidate a single session (logout current device)
  */
 export async function invalidateSession(tokenId: string): Promise<void> {

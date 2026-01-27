@@ -332,3 +332,100 @@ export async function updateMFABackupCodes(userId: string, codes: string[]): Pro
     })
     .where(eq(users.id, userId));
 }
+
+/**
+ * Set MFA reset token for a user
+ */
+export async function setMfaResetToken(
+  userId: string,
+  token: string,
+  expiresIn: number = 60 * 60 * 1000 // 1 hour
+): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      mfaResetToken: token,
+      mfaResetExpires: new Date(Date.now() + expiresIn),
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+}
+
+/**
+ * Find user by MFA reset token (for validation)
+ */
+export async function findUserByMfaResetToken(
+  token: string
+): Promise<UserWithAuth | null> {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      passwordHash: users.passwordHash,
+      emailVerified: users.emailVerified,
+      mfaEnabled: users.mfaEnabled,
+      mfaSecret: users.mfaSecret,
+      mfaBackupCodes: users.mfaBackupCodes,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+    })
+    .from(users)
+    .where(
+      and(
+        eq(users.mfaResetToken, token),
+        gt(users.mfaResetExpires, new Date())
+      )
+    );
+
+  return user ?? null;
+}
+
+/**
+ * Reset MFA with token and password verification
+ */
+export async function resetMfaWithToken(
+  token: string,
+  password: string
+): Promise<{ success: boolean; error?: string }> {
+  const user = await findUserByMfaResetToken(token);
+
+  if (!user) {
+    return { success: false, error: 'Invalid or expired reset token' };
+  }
+
+  // Verify password
+  const passwordValid = await verifyPassword(user.passwordHash, password);
+  if (!passwordValid) {
+    return { success: false, error: 'Invalid password' };
+  }
+
+  // Disable MFA and clear reset token
+  await db
+    .update(users)
+    .set({
+      mfaEnabled: false,
+      mfaSecret: null,
+      mfaBackupCodes: null,
+      mfaResetToken: null,
+      mfaResetExpires: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
+
+  return { success: true };
+}
+
+/**
+ * Clear MFA reset token (used after successful reset or on expiry)
+ */
+export async function clearMfaResetToken(userId: string): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      mfaResetToken: null,
+      mfaResetExpires: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+}
