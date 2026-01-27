@@ -15,7 +15,10 @@ export type ActionType =
   | 'remove_member'
   | 'add_resource'
   | 'remove_resource'
-  | 'status_change';
+  | 'status_change'
+  | 'assign'
+  | 'unassign'
+  | 'claim';
 
 export interface LogActivityInput {
   entityType: EntityType;
