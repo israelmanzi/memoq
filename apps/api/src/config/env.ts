@@ -32,8 +32,8 @@ const envSchema = z.object({
   MINIO_ENDPOINT: z.string().default('localhost'),
   MINIO_PORT: z.coerce.number().default(9000),
   MINIO_USE_SSL: z.string().transform((v) => v === 'true').default('false'),
-  MINIO_ACCESS_KEY: z.string().default('minioadmin'),
-  MINIO_SECRET_KEY: z.string().default('minioadmin'),
+  MINIO_ROOT_USER: z.string().default('minioadmin'),
+  MINIO_ROOT_PASSWORD: z.string().default('minioadmin'),
   MINIO_BUCKET: z.string().default('oxy-documents'),
   // Rate Limiting
   RATE_LIMIT_MAX: z.coerce.number().default(100),

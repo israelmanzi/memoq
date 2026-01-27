@@ -12,8 +12,8 @@ const s3Client = new S3Client({
   endpoint: `http${env.MINIO_USE_SSL ? 's' : ''}://${env.MINIO_ENDPOINT}:${env.MINIO_PORT}`,
   region: 'us-east-1', // Required but ignored by MinIO
   credentials: {
-    accessKeyId: env.MINIO_ACCESS_KEY,
-    secretAccessKey: env.MINIO_SECRET_KEY,
+    accessKeyId: env.MINIO_ROOT_USER,
+    secretAccessKey: env.MINIO_ROOT_PASSWORD,
   },
   forcePathStyle: true, // Required for MinIO
 });
