@@ -1,12 +1,15 @@
 # Dependencies
 node_modules
 .pnpm-store
+**/node_modules
 
-# Build outputs
+# Build outputs (we rebuild in Docker)
 dist
 build
 .next
 out
+**/dist
+**/build
 
 # Environment files
 .env
@@ -16,12 +19,14 @@ out
 # Git
 .git
 .gitignore
+.gitattributes
 
 # IDE
 .idea
 .vscode
 *.swp
 *.swo
+.editorconfig
 
 # OS
 .DS_Store
@@ -32,26 +37,38 @@ logs
 *.log
 npm-debug.log*
 pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Testing
 coverage
 .nyc_output
+**/*.test.ts
+**/*.spec.ts
+**/__tests__
 
 # Temp files
 tmp
 temp
 *.tmp
+.cache
 
-# Documentation (not needed in build)
+# Documentation
 docs
 *.md
-!README.md
+LICENSE
 
 # Development files
 CLAUDE.md
 .claude
-TODO.md
-TESTING.md
-NOTES.md
-
 test-files/
+**/*.test.*
+**/*.spec.*
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Misc
+.eslintcache
+.prettier*
+.husky

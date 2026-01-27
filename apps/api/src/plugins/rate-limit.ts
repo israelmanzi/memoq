@@ -6,24 +6,15 @@ import { getRedisClient, isRedisEnabled } from '../services/redis.service.js';
 import { logger } from '../config/logger.js';
 
 async function rateLimitPlugin(app: FastifyInstance) {
-  // Configure Redis store if available
-  let redisStore: any = undefined;
+  // Configure Redis client if available
+  let redisClient: ReturnType<typeof getRedisClient> | undefined = undefined;
 
   if (isRedisEnabled()) {
     try {
-      const redis = getRedisClient();
-      redisStore = {
-        get: async (key: string) => {
-          const val = await redis.get(key);
-          return val ? JSON.parse(val) : null;
-        },
-        set: async (key: string, value: { current: number; ttl: number }) => {
-          const ttl = Math.ceil(value.ttl / 1000); // Convert to seconds
-          await redis.setex(key, ttl, JSON.stringify(value));
-        },
-      };
+      redisClient = getRedisClient();
+      logger.info('Rate limiting will use Redis store');
     } catch (err) {
-      logger.warn({ err }, 'Failed to initialize Redis rate limit store, using in-memory');
+      logger.warn({ err }, 'Failed to get Redis client for rate limiting, using in-memory');
     }
   }
 
@@ -32,7 +23,7 @@ async function rateLimitPlugin(app: FastifyInstance) {
     global: true,
     max: env.RATE_LIMIT_MAX,
     timeWindow: env.RATE_LIMIT_WINDOW,
-    redis: redisStore,
+    redis: redisClient,
     keyGenerator: (request: FastifyRequest) => {
       // Use user ID if authenticated, otherwise use IP
       const user = request.user as { userId?: string } | undefined;

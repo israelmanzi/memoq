@@ -136,7 +136,7 @@ export const projectsApi = {
     formData.append('file', file);
 
     const token = localStorage.getItem('token');
-    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5064'}/api/v1/documents/project/${projectId}/upload`, {
+    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5064/api/v1'}/documents/project/${projectId}/upload`, {
       method: 'POST',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -169,7 +169,7 @@ export const projectsApi = {
   ): Promise<void> => {
     const token = localStorage.getItem('token');
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL || 'http://localhost:5064'}/api/v1/documents/${documentId}/export?format=${format}`,
+      `${import.meta.env.VITE_API_URL || 'http://localhost:5064/api/v1'}/documents/${documentId}/export?format=${format}`,
       {
         method: 'GET',
         headers: {
@@ -214,9 +214,9 @@ export const projectsApi = {
   // Get URL for original file (for PDF viewer)
   getOriginalFileUrl: (documentId: string): string => {
     const token = localStorage.getItem('token');
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5064';
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5064/api/v1';
     // Note: For PDF viewer, we pass token as query param since iframe/object can't set headers
-    return `${baseUrl}/api/v1/documents/${documentId}/original-file${token ? `?token=${token}` : ''}`;
+    return `${baseUrl}/documents/${documentId}/original-file${token ? `?token=${token}` : ''}`;
   },
 
   // Segments
