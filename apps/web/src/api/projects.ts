@@ -1,5 +1,20 @@
 import { api } from './client';
-import type { Project, Document, Segment, WorkflowType, ProjectStatus, WorkflowStatus, SegmentStatus, ProjectRole, TermMatch } from '@oxy/shared';
+import type {
+  Project,
+  Document,
+  Segment,
+  WorkflowType,
+  ProjectStatus,
+  WorkflowStatus,
+  SegmentStatus,
+  ProjectRole,
+  TermMatch,
+  DocumentRole,
+  DocumentAssignment,
+  DocumentAssignmentWithUser,
+  DocumentAssignmentFilter,
+  DocumentAssignmentInfo,
+} from '@oxy/shared';
 
 export interface CreateProjectInput {
   name: string;
@@ -31,6 +46,17 @@ export interface DocumentWithStats extends Document {
   byStatus: Record<string, number>;
   progress: number;
   createdByName?: string | null;
+  // Assignment info (included in list view)
+  assignments?: DocumentAssignmentInfo;
+  isAssignedToMe?: boolean;
+  myRole?: DocumentRole | null;
+  isAwaitingMyAction?: boolean;
+  // Edit permission info (included in single document view)
+  canEdit?: boolean;
+  editRestrictionReason?: string;
+  isAdminOrPM?: boolean;
+  // Workflow type from project (included in single document view)
+  workflowType?: WorkflowType;
 }
 
 export interface CreateDocumentInput {
@@ -118,12 +144,18 @@ export const projectsApi = {
     api.delete(`/projects/${projectId}/resources/${resourceId}`),
 
   // Documents
-  listDocuments: (projectId: string, options?: PaginationParams) => {
+  listDocuments: (
+    projectId: string,
+    options?: PaginationParams & { filter?: DocumentAssignmentFilter }
+  ) => {
     const params = new URLSearchParams();
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.offset) params.set('offset', String(options.offset));
+    if (options?.filter) params.set('filter', options.filter);
     const query = params.toString() ? `?${params}` : '';
-    return api.get<{ items: DocumentWithStats[]; total: number }>(`/documents/project/${projectId}${query}`);
+    return api.get<{ items: DocumentWithStats[]; total: number; filter?: DocumentAssignmentFilter }>(
+      `/documents/project/${projectId}${query}`
+    );
   },
 
   getDocument: (documentId: string) => api.get<DocumentWithStats>(`/documents/${documentId}`),
@@ -250,6 +282,19 @@ export const projectsApi = {
   ) => api.get<{ items: ConcordanceMatch[]; message?: string }>(
     `/documents/${documentId}/concordance?q=${encodeURIComponent(query)}&searchIn=${searchIn}`
   ),
+
+  // Document Assignments
+  listAssignments: (documentId: string) =>
+    api.get<{ items: DocumentAssignmentWithUser[] }>(`/documents/${documentId}/assignments`),
+
+  assignUser: (documentId: string, userId: string, role: DocumentRole) =>
+    api.post<DocumentAssignment>(`/documents/${documentId}/assignments`, { userId, role }),
+
+  claimRole: (documentId: string, role: DocumentRole) =>
+    api.post<DocumentAssignment>(`/documents/${documentId}/assignments/claim`, { role }),
+
+  removeAssignment: (documentId: string, role: DocumentRole) =>
+    api.delete(`/documents/${documentId}/assignments/${role}`),
 };
 
 // Concordance search result
