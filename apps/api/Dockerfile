@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:20-bookworm AS builder
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
@@ -29,7 +29,7 @@ RUN pnpm --filter @oxy/shared build && \
 RUN pnpm --filter @oxy/api deploy --prod /app/deploy
 
 # Production stage
-FROM node:20-alpine AS runner
+FROM node:20-bookworm AS runner
 
 # Add tini for proper signal handling (PID 1)
 RUN apk add --no-cache tini
