@@ -1,3 +1,4 @@
+import dns from "node:dns";
 import { Worker, Job } from 'bullmq';
 import { createRedisConnection, isRedisEnabled } from './services/redis.service.js';
 import { QUEUE_NAME, type JobData, type JobResult } from './services/queue.service.js';
@@ -5,6 +6,9 @@ import { handlePreTranslate } from './workers/handlers/pre-translate.handler.js'
 import { handleParseDocument } from './workers/handlers/parse-document.handler.js';
 import { handleExportPdf } from './workers/handlers/export-pdf.handler.js';
 import { logger } from './config/logger.js';
+
+// Force IPv4 first - Docker DNS can return IPv6 which may not route correctly
+dns.setDefaultResultOrder("ipv4first");
 
 let worker: Worker | null = null;
 

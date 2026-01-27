@@ -107,7 +107,7 @@ services:
     container_name: oxy-worker
     restart: unless-stopped
     env_file: .env
-    command: ["/sbin/tini", "--", "node", "dist/worker.js"]
+    command: ["/usr/bin/tini", "--", "node", "dist/worker.js"]
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-oxy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oxy}

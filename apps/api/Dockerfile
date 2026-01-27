@@ -29,14 +29,15 @@ RUN pnpm --filter @oxy/shared build && \
 RUN pnpm --filter @oxy/api deploy --prod /app/deploy
 
 # Production stage
-FROM node:20-bookworm AS runner
+FROM node:20-bookworm-slim AS runner
 
 # Add tini for proper signal handling (PID 1)
-RUN apk add --no-cache tini
+RUN apt-get update && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
 
 # Add non-root user for security
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 oxy
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 --gid nodejs oxy
 
 WORKDIR /app
 
@@ -55,5 +56,5 @@ USER oxy
 
 EXPOSE 3000
 
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "dist/index.js"]

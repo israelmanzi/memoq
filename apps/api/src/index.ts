@@ -1,8 +1,12 @@
+import dns from "node:dns";
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { initDb } from "./db/index.js";
 import { ensureBucket } from "./services/storage.service.js";
+
+// Force IPv4 first - Docker DNS can return IPv6 which may not route correctly
+dns.setDefaultResultOrder("ipv4first");
 
 async function main() {
     try {
