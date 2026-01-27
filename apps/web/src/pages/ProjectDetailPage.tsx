@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useNavigate } from '@tanstack/react-router';
-import { projectsApi, tmApi, tbApi, activityApi, type ProjectDeleteInfo } from '../api';
+import { projectsApi, tmApi, tbApi, activityApi, type ProjectDeleteInfo, type DocumentWithStats } from '../api';
+import { DocumentAssignmentsModal } from '../components/DocumentAssignmentsModal';
 import { useOrgStore } from '../stores/org';
 import { Pagination } from '../components/Pagination';
 import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
 import { ActivityFeed } from '../components/ActivityFeed';
 import { formatProjectStatus, formatWorkflowType, formatWorkflowStatus } from '../utils/formatters';
-import type { ProjectStatus, WorkflowType } from '@oxy/shared';
+import type { ProjectStatus, WorkflowType, DocumentAssignmentFilter, DocumentRole, DocumentAssignmentInfo } from '@oxy/shared';
 
 const DOCS_PAGE_SIZE = 10;
 
@@ -26,6 +27,77 @@ const DOC_STATUS_CONFIG = {
 } as const;
 
 const DEFAULT_DOC_STATUS = DOC_STATUS_CONFIG.translation;
+
+// Assignments display for document list - shows all relevant roles based on workflow type
+function AssignmentsDisplay({
+  assignments,
+  activeRole,
+  myRole,
+  workflowType,
+}: {
+  assignments: DocumentAssignmentInfo | undefined;
+  activeRole: DocumentRole | null;
+  myRole: DocumentRole | null;
+  workflowType: WorkflowType;
+}) {
+  if (!assignments) {
+    return <span className="text-text-muted">—</span>;
+  }
+
+  // Determine which roles to show based on workflow type
+  const rolesToShow: DocumentRole[] =
+    workflowType === 'simple'
+      ? ['translator']
+      : workflowType === 'single_review'
+        ? ['translator', 'reviewer_1']
+        : ['translator', 'reviewer_1', 'reviewer_2'];
+
+  const roleLabels: Record<DocumentRole, string> = {
+    translator: 'Translator',
+    reviewer_1: 'Reviewer 1',
+    reviewer_2: 'Reviewer 2',
+  };
+
+  return (
+    <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+      {rolesToShow.map((role) => {
+        const assignment = assignments[role];
+        const isActive = activeRole === role;
+        const isMe = myRole === role;
+
+        const assigneeName = assignment
+          ? isMe
+            ? 'You'
+            : assignment.userName
+          : 'Unassigned';
+
+        const valueColorClasses = !assignment
+          ? isActive
+            ? 'text-warning'
+            : 'text-text-muted'
+          : isMe
+            ? 'text-accent font-medium'
+            : isActive
+              ? 'text-text'
+              : 'text-text-secondary';
+
+        return (
+          <React.Fragment key={role}>
+            <span className={`text-text-secondary ${isActive ? 'font-medium' : ''}`}>
+              {roleLabels[role]}:
+            </span>
+            <span className={`flex items-center gap-1 ${valueColorClasses}`}>
+              {assigneeName}
+              {isActive && (
+                <span className="w-1.5 h-1.5 rounded-full bg-success flex-shrink-0" title="Active stage" />
+              )}
+            </span>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
 
 // Sortable column header component
 function SortHeader({
@@ -77,7 +149,9 @@ export function ProjectDetailPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteInfo, setDeleteInfo] = useState<ProjectDeleteInfo | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [docSort, setDocSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
+  const [docSort, setDocSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'createdAt', dir: 'desc' });
+  const [docFilter, setDocFilter] = useState<DocumentAssignmentFilter>('all');
+  const [assigningDocument, setAssigningDocument] = useState<DocumentWithStats | null>(null);
 
   const { data: project, isLoading, error: projectError } = useQuery({
     queryKey: ['project', projectId],
@@ -85,8 +159,8 @@ export function ProjectDetailPage() {
   });
 
   const { data: docsData } = useQuery({
-    queryKey: ['documents', projectId, docsOffset],
-    queryFn: () => projectsApi.listDocuments(projectId, { limit: DOCS_PAGE_SIZE, offset: docsOffset }),
+    queryKey: ['documents', projectId, docsOffset, docFilter],
+    queryFn: () => projectsApi.listDocuments(projectId, { limit: DOCS_PAGE_SIZE, offset: docsOffset, filter: docFilter }),
     enabled: !!project,
   });
 
@@ -272,17 +346,37 @@ export function ProjectDetailPage() {
       {/* Documents Tab */}
       {activeTab === 'documents' && (
         <div className="bg-surface-alt border border-border">
-          <div className="px-3 py-2 border-b border-border flex items-center justify-between bg-surface-panel">
-            <div>
-              <h2 className="text-sm font-medium text-text">Documents</h2>
-              <p className="text-2xs text-text-muted">Upload files to translate</p>
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface-panel">
+            <div className="flex items-center gap-4">
+              <div>
+                <h2 className="text-sm font-semibold text-text">Documents</h2>
+                <p className="text-xs text-text-muted">Upload files to translate</p>
+              </div>
+              {/* Assignment Filter */}
+              <select
+                value={docFilter}
+                onChange={(e) => {
+                  setDocFilter(e.target.value as DocumentAssignmentFilter);
+                  setDocsOffset(0); // Reset pagination when filter changes
+                }}
+                className="px-2.5 py-1.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none rounded-sm"
+                title="Filter documents by assignment"
+              >
+                <option value="all">All documents</option>
+                <option value="awaiting_action">Awaiting my action</option>
+                <option value="assigned_to_me">Assigned to me</option>
+                <option value="assigned_as_translator">Assigned as Translator</option>
+                <option value="assigned_as_reviewer_1">Assigned as Reviewer 1</option>
+                <option value="assigned_as_reviewer_2">Assigned as Reviewer 2</option>
+                <option value="unassigned">Unassigned</option>
+              </select>
             </div>
             <button
               onClick={() => setShowAddDocModal(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-accent text-text-inverse text-xs font-medium hover:bg-accent-hover focus:outline-none focus:ring-1 focus:ring-accent"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-text-inverse text-sm font-medium hover:bg-accent-hover focus:outline-none focus:ring-1 focus:ring-accent rounded-sm"
               title="Upload a new document for translation"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Upload
@@ -290,25 +384,27 @@ export function ProjectDetailPage() {
           </div>
 
           {/* Table header */}
-          <div className="grid grid-cols-[1fr_60px_70px_80px_70px_70px] gap-2 px-3 py-2 bg-surface-panel border-b border-border text-2xs font-medium text-text-secondary uppercase tracking-wide">
+          <div className="grid grid-cols-[1fr_56px_64px_72px_72px_80px_200px_40px] gap-3 px-4 py-2.5 bg-surface-panel border-b border-border text-xs font-medium text-text-secondary uppercase tracking-wide">
             <SortHeader label="Name" sortKey="name" current={docSort} onSort={setDocSort} />
-            <SortHeader label="Type" sortKey="fileType" current={docSort} onSort={setDocSort} className="text-center" />
-            <SortHeader label="Segments" sortKey="totalSegments" current={docSort} onSort={setDocSort} className="text-center" />
-            <SortHeader label="Uploaded" sortKey="createdAt" current={docSort} onSort={setDocSort} className="text-center" />
-            <SortHeader label="Progress" sortKey="progress" current={docSort} onSort={setDocSort} className="text-center" />
-            <SortHeader label="Status" sortKey="workflowStatus" current={docSort} onSort={setDocSort} className="text-center" />
+            <SortHeader label="Type" sortKey="fileType" current={docSort} onSort={setDocSort} className="text-center justify-center" />
+            <SortHeader label="Segs" sortKey="totalSegments" current={docSort} onSort={setDocSort} className="text-center justify-center" />
+            <SortHeader label="Date" sortKey="createdAt" current={docSort} onSort={setDocSort} className="text-center justify-center" />
+            <SortHeader label="Progress" sortKey="progress" current={docSort} onSort={setDocSort} className="text-center justify-center" />
+            <SortHeader label="Status" sortKey="workflowStatus" current={docSort} onSort={setDocSort} className="text-center justify-center" />
+            <span>Assignments</span>
+            <span></span>
           </div>
 
           <div className="divide-y divide-border-light">
             {documents.length === 0 ? (
-              <div className="px-3 py-8 text-center">
-                <svg className="w-10 h-10 mx-auto text-border mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="px-4 py-10 text-center">
+                <svg className="w-12 h-12 mx-auto text-border mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <p className="text-sm text-text-muted mb-2">No documents yet</p>
+                <p className="text-base text-text-muted mb-2">No documents yet</p>
                 <button
                   onClick={() => setShowAddDocModal(true)}
-                  className="text-sm text-accent hover:text-accent-hover"
+                  className="text-sm text-accent hover:text-accent-hover font-medium"
                 >
                   Upload your first document
                 </button>
@@ -328,62 +424,103 @@ export function ProjectDetailPage() {
                   })
                   .map((doc) => {
                     const docStatus = DOC_STATUS_CONFIG[doc.workflowStatus as keyof typeof DOC_STATUS_CONFIG] ?? DEFAULT_DOC_STATUS;
+                    // Determine active role based on workflow
+                    const activeRole: DocumentRole | null =
+                      doc.workflowStatus === 'translation' ? 'translator' :
+                      doc.workflowStatus === 'review_1' ? 'reviewer_1' :
+                      doc.workflowStatus === 'review_2' ? 'reviewer_2' : null;
+
                     return (
-                      <Link
+                      <div
                         key={doc.id}
-                        to="/documents/$documentId"
-                        params={{ documentId: doc.id }}
-                        className="grid grid-cols-[1fr_60px_70px_80px_70px_70px] gap-2 px-3 py-2 hover:bg-surface-hover items-center"
+                        className="grid grid-cols-[1fr_56px_64px_72px_72px_80px_200px_40px] gap-3 px-4 py-2.5 hover:bg-surface-hover items-center group"
                       >
-                        {/* Name */}
-                        <div className="min-w-0">
-                          <div className="font-medium text-sm text-text truncate">{doc.name}</div>
+                        {/* Name - clickable link */}
+                        <Link
+                          to="/documents/$documentId"
+                          params={{ documentId: doc.id }}
+                          className="min-w-0"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm text-text truncate group-hover:text-accent">{doc.name}</span>
+                            {doc.isAwaitingMyAction && (
+                              <span
+                                className="flex-shrink-0 px-1.5 py-0.5 text-2xs font-medium bg-accent text-white rounded-sm"
+                                title="This document is awaiting your action"
+                              >
+                                Action needed
+                              </span>
+                            )}
+                          </div>
                           {doc.createdByName && (
-                            <div className="text-2xs text-text-muted truncate">by {doc.createdByName}</div>
+                            <div className="text-xs text-text-muted truncate">by {doc.createdByName}</div>
                           )}
-                        </div>
+                        </Link>
 
                         {/* File Type */}
                         <div className="text-center">
-                          <span className="px-1.5 py-0.5 text-2xs font-medium bg-surface-panel text-text-secondary uppercase">
+                          <span className="px-1.5 py-0.5 text-xs font-medium bg-surface-panel text-text-secondary uppercase rounded-sm">
                             {doc.fileType}
                           </span>
                         </div>
 
                         {/* Segments */}
-                        <div className="text-center text-xs text-text-secondary">
+                        <div className="text-center text-sm text-text-secondary tabular-nums">
                           {doc.totalSegments}
                         </div>
 
                         {/* Upload Date */}
-                        <div className="text-center text-2xs text-text-muted" title={new Date(doc.createdAt).toLocaleString()}>
+                        <div className="text-center text-xs text-text-muted" title={new Date(doc.createdAt).toLocaleString()}>
                           {new Date(doc.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                         </div>
 
                         {/* Progress */}
                         <div
-                          className="flex items-center gap-1"
+                          className="flex items-center gap-1.5"
                           title={`${doc.progress}% translated`}
                         >
-                          <div className="flex-1 h-1 bg-border rounded-sm overflow-hidden">
+                          <div className="flex-1 h-1.5 bg-border rounded-sm overflow-hidden">
                             <div
                               className="h-full bg-success transition-all"
                               style={{ width: `${doc.progress}%` }}
                             />
                           </div>
-                          <span className="text-2xs text-text-secondary w-6 text-right">{doc.progress}%</span>
+                          <span className="text-xs text-text-secondary w-7 text-right tabular-nums">{doc.progress}%</span>
                         </div>
 
                         {/* Status */}
                         <div className="flex justify-center">
                           <span
-                            className={`px-1.5 py-0.5 text-2xs font-medium ${docStatus.bg} ${docStatus.color}`}
+                            className={`px-1.5 py-0.5 text-xs font-medium rounded-sm ${docStatus.bg} ${docStatus.color}`}
                             title={docStatus.tooltip}
                           >
                             {formatWorkflowStatus(doc.workflowStatus)}
                           </span>
                         </div>
-                      </Link>
+
+                        {/* Assignments */}
+                        <div className="text-xs min-w-0">
+                          <AssignmentsDisplay
+                            assignments={doc.assignments}
+                            activeRole={activeRole}
+                            myRole={doc.myRole ?? null}
+                            workflowType={project.workflowType}
+                          />
+                        </div>
+
+                        {/* Assign button */}
+                        <div className="flex justify-center">
+                          <button
+                            onClick={() => setAssigningDocument(doc)}
+                            className="p-1.5 text-text-muted hover:text-accent hover:bg-accent/10 rounded-sm"
+                            title="Manage assignments"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 <Pagination
@@ -522,6 +659,20 @@ export function ProjectDetailPage() {
             ...(deleteInfo.segmentCount > 0 ? [{ label: 'segments', count: deleteInfo.segmentCount }] : []),
           ]}
           isDeleting={isDeleting}
+        />
+      )}
+
+      {/* Document Assignments Modal */}
+      {assigningDocument && currentOrg && (
+        <DocumentAssignmentsModal
+          documentId={assigningDocument.id}
+          orgId={currentOrg.id}
+          workflowStatus={assigningDocument.workflowStatus}
+          workflowType={project.workflowType}
+          onClose={() => setAssigningDocument(null)}
+          onAssignmentChange={() => {
+            queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+          }}
         />
       )}
     </div>
