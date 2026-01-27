@@ -123,6 +123,27 @@ export interface Document {
   updatedAt: Date;
 }
 
+export interface DocumentAssignment {
+  id: string;
+  documentId: string;
+  userId: string;
+  role: DocumentRole;
+  assignedAt: Date;
+  assignedBy: string | null;
+}
+
+export interface DocumentAssignmentWithUser extends DocumentAssignment {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  assignedByUser?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
 export interface Segment {
   id: string;
   documentId: string;
@@ -205,4 +226,29 @@ export interface RegisterRequest {
 export interface AuthResponse {
   user: AuthUser;
   token: string;
+}
+
+// Document assignment filter types
+export type DocumentAssignmentFilter =
+  | 'all'
+  | 'awaiting_action'
+  | 'assigned_to_me'
+  | 'assigned_as_translator'
+  | 'assigned_as_reviewer_1'
+  | 'assigned_as_reviewer_2'
+  | 'unassigned';
+
+// Document with assignment info for list views
+export interface DocumentAssignmentInfo {
+  translator: { userId: string; userName: string } | null;
+  reviewer_1: { userId: string; userName: string } | null;
+  reviewer_2: { userId: string; userName: string } | null;
+}
+
+export interface DocumentWithAssignments extends Document {
+  assignments: DocumentAssignmentInfo;
+  // Computed fields for the current user
+  isAssignedToMe: boolean;
+  myRole: DocumentRole | null;
+  isAwaitingMyAction: boolean;
 }

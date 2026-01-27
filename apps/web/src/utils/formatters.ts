@@ -8,7 +8,7 @@ const PROJECT_STATUS_LABELS: Record<string, string> = {
 };
 
 export function formatProjectStatus(status: string): string {
-  return PROJECT_STATUS_LABELS[status] || status;
+  return PROJECT_STATUS_LABELS[status] || formatEnumLabel(status);
 }
 
 // Workflow Status (Document level)
@@ -21,7 +21,7 @@ const WORKFLOW_STATUS_LABELS: Record<string, string> = {
 };
 
 export function formatWorkflowStatus(status: string): string {
-  return WORKFLOW_STATUS_LABELS[status] || status;
+  return WORKFLOW_STATUS_LABELS[status] || formatEnumLabel(status);
 }
 
 // Segment Status
@@ -36,7 +36,7 @@ const SEGMENT_STATUS_LABELS: Record<string, string> = {
 
 export function formatSegmentStatus(status: string | null | undefined): string {
   if (!status) return 'New';
-  return SEGMENT_STATUS_LABELS[status] || status;
+  return SEGMENT_STATUS_LABELS[status] || formatEnumLabel(status);
 }
 
 // Workflow Type
@@ -47,30 +47,42 @@ const WORKFLOW_TYPE_LABELS: Record<string, string> = {
 };
 
 export function formatWorkflowType(type: string): string {
-  return WORKFLOW_TYPE_LABELS[type] || type;
+  return WORKFLOW_TYPE_LABELS[type] || formatEnumLabel(type);
 }
 
 // Organization Roles
 const ORG_ROLE_LABELS: Record<string, string> = {
-  owner: 'Owner',
   admin: 'Admin',
-  member: 'Member',
+  project_manager: 'Project Manager',
+  translator: 'Translator',
+  reviewer: 'Reviewer',
 };
 
 export function formatOrgRole(role: string): string {
-  return ORG_ROLE_LABELS[role] || role;
+  return ORG_ROLE_LABELS[role] || formatEnumLabel(role);
 }
 
 // Project Roles
 const PROJECT_ROLE_LABELS: Record<string, string> = {
   project_manager: 'Project Manager',
   translator: 'Translator',
-  reviewer: 'Reviewer',
-  viewer: 'Viewer',
+  reviewer_1: 'Reviewer 1',
+  reviewer_2: 'Reviewer 2',
 };
 
 export function formatProjectRole(role: string): string {
-  return PROJECT_ROLE_LABELS[role] || role;
+  return PROJECT_ROLE_LABELS[role] || formatEnumLabel(role);
+}
+
+// Document Assignment Roles
+const DOCUMENT_ROLE_LABELS: Record<string, string> = {
+  translator: 'Translator',
+  reviewer_1: 'Reviewer 1',
+  reviewer_2: 'Reviewer 2',
+};
+
+export function formatDocumentRole(role: string): string {
+  return DOCUMENT_ROLE_LABELS[role] || formatEnumLabel(role);
 }
 
 // Generic formatter for unknown enum values (converts snake_case to Title Case)

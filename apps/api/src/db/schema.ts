@@ -44,6 +44,9 @@ export const users = pgTable('users', {
   mfaEnabled: boolean('mfa_enabled').default(false).notNull(),
   mfaSecret: text('mfa_secret'),
   mfaBackupCodes: jsonb('mfa_backup_codes').$type<string[]>(),
+  // MFA Reset
+  mfaResetToken: text('mfa_reset_token'),
+  mfaResetExpires: timestamp('mfa_reset_expires', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
