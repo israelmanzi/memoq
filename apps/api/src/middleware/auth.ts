@@ -19,18 +19,31 @@ declare module '@fastify/jwt' {
 async function authPlugin(app: FastifyInstance) {
   app.decorate('authenticate', async function (request: FastifyRequest, reply: FastifyReply) {
     try {
+      // First try standard header-based auth
       await request.jwtVerify();
-
-      // If Redis is enabled and token has a tokenId, validate the session
-      const { tokenId } = request.user;
-      if (isRedisEnabled() && tokenId) {
-        const sessionResult = await validateSession(tokenId);
-        if (!sessionResult.valid) {
-          return reply.status(401).send({ error: 'Session expired or invalidated' });
-        }
-      }
     } catch (err) {
-      reply.status(401).send({ error: 'Unauthorized' });
+      // If header auth fails, check for token in query params (for PDF viewer, etc.)
+      const queryToken = (request.query as Record<string, string>)?.token;
+      if (queryToken) {
+        try {
+          // Manually verify the token from query param
+          const decoded = app.jwt.verify<{ userId: string; tokenId?: string }>(queryToken);
+          request.user = decoded;
+        } catch {
+          return reply.status(401).send({ error: 'Unauthorized' });
+        }
+      } else {
+        return reply.status(401).send({ error: 'Unauthorized' });
+      }
+    }
+
+    // If Redis is enabled and token has a tokenId, validate the session
+    const { tokenId } = request.user;
+    if (isRedisEnabled() && tokenId) {
+      const sessionResult = await validateSession(tokenId);
+      if (!sessionResult.valid) {
+        return reply.status(401).send({ error: 'Session expired or invalidated' });
+      }
     }
   });
 }
