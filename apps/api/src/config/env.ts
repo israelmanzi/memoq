@@ -3,17 +3,19 @@ import { z } from 'zod';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 
-// Load .env from monorepo root
-const rootEnv = resolve(process.cwd(), '../../.env');
-const localEnv = resolve(process.cwd(), '.env');
+// Load .env - check multiple locations for monorepo compatibility
+const envPaths = [
+  resolve(process.cwd(), '.env'),           // Current directory (production)
+  resolve(process.cwd(), '../../.env'),     // Monorepo root (development)
+];
 
-if (existsSync(localEnv)) {
-  config({ path: localEnv });
-} else if (existsSync(rootEnv)) {
-  config({ path: rootEnv });
-} else {
-  config(); // Fallback to default behavior
+for (const envPath of envPaths) {
+  if (existsSync(envPath)) {
+    config({ path: envPath });
+    break;
+  }
 }
+// In Docker, env vars are passed via docker-compose, so no .env file needed
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
