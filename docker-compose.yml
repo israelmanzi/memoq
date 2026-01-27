@@ -17,15 +17,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '1.0'
-        reservations:
-          memory: 256M
     networks:
       - oxy-network
 
@@ -44,15 +35,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.5'
-        reservations:
-          memory: 128M
     networks:
       - oxy-network
 
@@ -75,15 +57,6 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '1.0'
-        reservations:
-          memory: 256M
     networks:
       - oxy-network
 
@@ -124,20 +97,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    read_only: true
-    tmpfs:
-      - /tmp:noexec,nosuid,size=100M
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '1.0'
-        reservations:
-          memory: 256M
     networks:
       - oxy-network
 
@@ -167,20 +126,6 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    read_only: true
-    tmpfs:
-      - /tmp:noexec,nosuid,size=100M
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '1.0'
-        reservations:
-          memory: 256M
     networks:
       - oxy-network
 
@@ -197,27 +142,6 @@ services:
       - "${WEB_PORT:-5063}:80"
     depends_on:
       - api
-    read_only: true
-    tmpfs:
-      - /var/cache/nginx:noexec,nosuid,size=50M
-      - /var/run:noexec,nosuid,size=10M
-      - /var/log/nginx:noexec,nosuid,size=10M
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-      - CHOWN
-      - SETGID
-      - SETUID
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: '0.5'
-        reservations:
-          memory: 64M
     networks:
       - oxy-network
 
