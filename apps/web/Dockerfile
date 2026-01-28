@@ -59,6 +59,6 @@ EXPOSE 80 5063
 
 # Health check - uses NGINX_PORT env var
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1:${NGINX_PORT:-80}/health || exit 1
+    CMD wget -q -O /dev/null http://127.0.0.1:${NGINX_PORT}/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
