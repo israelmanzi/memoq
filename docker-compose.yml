@@ -2,101 +2,77 @@ services:
   postgres:
     image: postgres:16
     container_name: oxy-postgres
-    hostname: postgres
     restart: unless-stopped
+    network_mode: "host"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-oxy}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-oxy}
-    ports:
-      - "${POSTGRES_PORT:-5066}:5432"
+      PGPORT: ${POSTGRES_PORT:-5066}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oxy} -d ${POSTGRES_DB:-oxy}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oxy} -d ${POSTGRES_DB:-oxy} -p ${POSTGRES_PORT:-5066}"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
-    networks:
-      oxy-network:
-        aliases:
-          - postgres
-          - db
 
   redis:
     image: redis:7
     container_name: oxy-redis
-    hostname: redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme}
-    ports:
-      - "${REDIS_PORT:-5065}:6379"
+    network_mode: "host"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme} --port ${REDIS_PORT:-5065}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      test: ["CMD", "redis-cli", "-p", "${REDIS_PORT:-5065}", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 5s
-    networks:
-      oxy-network:
-        aliases:
-          - redis
-          - cache
 
   minio:
     image: minio/minio:latest
     container_name: oxy-minio
-    hostname: minio
     restart: unless-stopped
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    network_mode: "host"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
-    command: server /data --console-address ":9001"
+    command: server /data --address ":${MINIO_PORT:-9000}" --console-address ":${MINIO_CONSOLE_PORT:-9001}"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 10s
-    networks:
-      oxy-network:
-        aliases:
-          - minio
-          - storage
 
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     container_name: oxy-api
-    hostname: api
     restart: unless-stopped
-    ports:
-      - "${API_PORT:-5064}:3000"
+    network_mode: "host"
     environment:
       NODE_ENV: production
-      API_PORT: 3000
-      # Explicit DB connection params (more reliable than URL parsing)
-      DB_HOST: postgres
-      DB_PORT: 5432
+      API_PORT: ${API_PORT:-5064}
+      # DB connection via localhost (host networking)
+      DB_HOST: 127.0.0.1
+      DB_PORT: ${POSTGRES_PORT:-5066}
       DB_USER: ${POSTGRES_USER:-oxy}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-oxy}
-      # Keep DATABASE_URL for compatibility
-      DATABASE_URL: postgresql://${POSTGRES_USER:-oxy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oxy}
-      # Redis
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      DATABASE_URL: postgresql://${POSTGRES_USER:-oxy}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5066}/${POSTGRES_DB:-oxy}
+      # Redis via localhost
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: ${REDIS_PORT:-5065}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@127.0.0.1:${REDIS_PORT:-5065}
       # Auth
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
@@ -104,9 +80,9 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM}
       APP_URL: ${APP_URL}
-      # Storage
-      MINIO_ENDPOINT: minio
-      MINIO_PORT: 9000
+      # Storage via localhost
+      MINIO_ENDPOINT: 127.0.0.1
+      MINIO_PORT: ${MINIO_PORT:-9000}
       MINIO_USE_SSL: "false"
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -119,43 +95,39 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:${API_PORT:-5064}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    networks:
-      oxy-network:
-        aliases:
-          - api
 
   worker:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     container_name: oxy-worker
-    hostname: worker
     restart: unless-stopped
+    network_mode: "host"
     command: ["node", "dist/worker.js"]
     environment:
       NODE_ENV: production
-      # Explicit DB connection params
-      DB_HOST: postgres
-      DB_PORT: 5432
+      # DB connection via localhost
+      DB_HOST: 127.0.0.1
+      DB_PORT: ${POSTGRES_PORT:-5066}
       DB_USER: ${POSTGRES_USER:-oxy}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: ${POSTGRES_DB:-oxy}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-oxy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oxy}
-      # Redis
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      DATABASE_URL: postgresql://${POSTGRES_USER:-oxy}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5066}/${POSTGRES_DB:-oxy}
+      # Redis via localhost
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: ${REDIS_PORT:-5065}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@127.0.0.1:${REDIS_PORT:-5065}
       # Auth
       JWT_SECRET: ${JWT_SECRET}
-      # Storage
-      MINIO_ENDPOINT: minio
-      MINIO_PORT: 9000
+      # Storage via localhost
+      MINIO_ENDPOINT: 127.0.0.1
+      MINIO_PORT: ${MINIO_PORT:-9000}
       MINIO_USE_SSL: "false"
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -167,10 +139,6 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    networks:
-      oxy-network:
-        aliases:
-          - worker
 
   web:
     build:
@@ -179,26 +147,15 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL}
     container_name: oxy-web
-    hostname: web
     restart: unless-stopped
-    ports:
-      - "${WEB_PORT:-5063}:80"
+    network_mode: "host"
+    environment:
+      NGINX_PORT: ${WEB_PORT:-5063}
     depends_on:
       api:
         condition: service_healthy
-    networks:
-      oxy-network:
-        aliases:
-          - web
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
-
-networks:
-  oxy-network:
-    driver: bridge
-    driver_opts:
-      com.docker.network.bridge.enable_icc: "true"
-      com.docker.network.bridge.enable_ip_masquerade: "true"

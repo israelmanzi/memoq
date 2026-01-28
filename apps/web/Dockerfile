@@ -32,8 +32,8 @@ RUN pnpm --filter @oxy/shared build && \
 # Production stage - serve with nginx
 FROM nginx:1.27-alpine AS runner
 
-# Copy nginx config
-COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx config template
+COPY apps/web/nginx.conf /etc/nginx/templates/default.conf.template
 
 # Copy built static files
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
@@ -52,10 +52,13 @@ RUN chown -R nginx:nginx /usr/share/nginx/html && \
     touch /var/run/nginx.pid && \
     chown -R nginx:nginx /var/run/nginx.pid
 
-EXPOSE 80
+# Default port (can be overridden via environment)
+ENV NGINX_PORT=80
 
-# Health check using wget (built into alpine)
+EXPOSE 80 5063
+
+# Health check - uses NGINX_PORT env var
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1/health || exit 1
+    CMD wget -q -O /dev/null http://127.0.0.1:${NGINX_PORT:-80}/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
