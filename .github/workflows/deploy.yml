@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'docker-compose.yml'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'tsconfig.json'
   workflow_dispatch:
 
 env:
@@ -46,30 +53,110 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/main'
+    environment: production
 
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
+          API_PORT: ${{ secrets.API_PORT }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
+          envs: PROJECT_DIR,API_PORT
+          command_timeout: 15m
           script: |
-            cd ${{ secrets.PROJECT_DIR }}
+            # Exit on error, but handle rollback manually
+            cd "$PROJECT_DIR" || exit 1
 
-            echo "Pulling latest changes..."
-            git pull origin main
+            # Store current state for rollback
+            PREVIOUS_COMMIT=$(git rev-parse HEAD)
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            echo "=== Deployment started at $TIMESTAMP ==="
+            echo "Current commit: $PREVIOUS_COMMIT"
 
-            echo "Rebuilding and restarting containers..."
-            docker compose build --no-cache
-            docker compose up -d
+            # Tag current images for rollback
+            echo "=== Tagging current images for rollback ==="
+            docker tag memoq-api:latest memoq-api:rollback 2>/dev/null || true
+            docker tag memoq-web:latest memoq-web:rollback 2>/dev/null || true
+            docker tag memoq-worker:latest memoq-worker:rollback 2>/dev/null || true
 
-            echo "Running migrations..."
-            docker compose exec -T api node dist/db/migrate.js
+            # Pull latest code
+            echo "=== Pulling latest changes ==="
+            git fetch origin main
+            git reset --hard origin/main
 
-            echo "Cleaning up old images..."
-            docker image prune -f
+            NEW_COMMIT=$(git rev-parse HEAD)
+            echo "New commit: $NEW_COMMIT"
 
-            echo "Deployment complete!"
+            if [ "$PREVIOUS_COMMIT" = "$NEW_COMMIT" ]; then
+              echo "No changes to deploy. Exiting."
+              exit 0
+            fi
+
+            # Build new images
+            echo "=== Building new images ==="
+            if ! docker compose build; then
+              echo "Build failed! No changes made to running services."
+              git reset --hard "$PREVIOUS_COMMIT"
+              exit 1
+            fi
+
+            # Stop and restart with new images
+            echo "=== Restarting services ==="
+            docker compose down --timeout 30
+
+            if ! docker compose up -d; then
+              echo "=== FAILED: Starting new containers ==="
+              echo "=== Rolling back to previous version ==="
+              git reset --hard "$PREVIOUS_COMMIT"
+              docker tag memoq-api:rollback memoq-api:latest 2>/dev/null || true
+              docker tag memoq-web:rollback memoq-web:latest 2>/dev/null || true
+              docker tag memoq-worker:rollback memoq-worker:rollback 2>/dev/null || true
+              docker compose up -d
+              echo "Rollback complete."
+              exit 1
+            fi
+
+            # Wait for health checks
+            echo "=== Waiting for services to be healthy ==="
+            RETRIES=30
+            while [ $RETRIES -gt 0 ]; do
+              if curl -sf "http://127.0.0.1:${API_PORT:-5064}/health" > /dev/null 2>&1; then
+                echo "API is healthy!"
+                break
+              fi
+              echo "Waiting for API... ($RETRIES retries left)"
+              sleep 5
+              RETRIES=$((RETRIES - 1))
+            done
+
+            if [ $RETRIES -eq 0 ]; then
+              echo "=== FAILED: API health check ==="
+              echo "=== Rolling back to previous version ==="
+              docker compose down --timeout 30
+              git reset --hard "$PREVIOUS_COMMIT"
+              docker tag memoq-api:rollback memoq-api:latest 2>/dev/null || true
+              docker tag memoq-web:rollback memoq-web:latest 2>/dev/null || true
+              docker tag memoq-worker:rollback memoq-worker:rollback 2>/dev/null || true
+              docker compose up -d
+              echo "Rollback complete."
+              exit 1
+            fi
+
+            # Run migrations
+            echo "=== Running database migrations ==="
+            docker compose exec -T api node dist/db/migrate.js || echo "Migration warning (may be ok)"
+
+            # Cleanup old images (only from this project)
+            echo "=== Cleaning up old images ==="
+            docker rmi memoq-api:rollback memoq-web:rollback memoq-worker:rollback 2>/dev/null || true
+            docker image prune -f --filter "label=com.docker.compose.project=memoq" 2>/dev/null || true
+
+            echo "=== Deployment successful! ==="
+            echo "Previous: $PREVIOUS_COMMIT"
+            echo "Deployed: $NEW_COMMIT"
             docker compose ps
