@@ -29,10 +29,18 @@ When confirming a translation, identical untranslated segments in the same docum
 ## Architecture
 
 ```
-┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-│   React     │ ───► │  Fastify    │ ───► │ PostgreSQL  │
-│   SPA       │ HTTP │  REST API   │ SQL  │  Database   │
-└─────────────┘      └─────────────┘      └─────────────┘
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+│   React     │      │  Fastify    │      │ PostgreSQL  │      │    MinIO    │
+│   Web App   │─────►│  REST API   │─────►│  Database   │      │   Storage   │
+│  (nginx)    │ HTTP │             │ SQL  │             │      │   (S3)      │
+└─────────────┘      └──────┬──────┘      └─────────────┘      └──────▲──────┘
+                            │                                         │
+                            │ Jobs                                    │
+                            ▼                                         │
+                     ┌─────────────┐      ┌─────────────┐            │
+                     │    Redis    │◄────►│   Worker    │────────────┘
+                     │   (Queue)   │      │  (BullMQ)   │
+                     └─────────────┘      └─────────────┘
                             │
                             ▼
                      ┌─────────────┐
@@ -41,26 +49,87 @@ When confirming a translation, identical untranslated segments in the same docum
                      └─────────────┘
 ```
 
-**Frontend**: Single-page React application handling routing, state management, and UI rendering. Communicates with the API via REST calls.
+### Services
 
-**Backend**: Stateless Node.js API server handling authentication, business logic, file processing, and database operations. Issues JWT tokens for session management.
+| Service | Technology | Purpose |
+|---------|------------|---------|
+| **Web** | React + Vite + nginx | Single-page application for translation UI |
+| **API** | Fastify + Node.js | REST API, authentication, business logic |
+| **Worker** | BullMQ + Node.js | Background jobs (document parsing, PDF export, pre-translation) |
+| **PostgreSQL** | PostgreSQL 16 | Primary database for all structured data |
+| **Redis** | Redis 7 | Job queue, session cache, rate limiting |
+| **MinIO** | MinIO (S3-compatible) | Object storage for uploaded document files |
+| **Email** | Resend | Transactional emails (verification, password reset) |
 
-**Database**: PostgreSQL storing all persistent data - users, organizations, projects, documents, segments, TM entries, and terms.
+### Monorepo Structure
 
-**Email**: Transactional emails via Resend for verification, password reset, and security notifications.
+```
+oxy/
+├── apps/
+│   ├── api/          # Fastify backend
+│   └── web/          # React frontend
+├── packages/
+│   └── shared/       # Shared types and constants
+├── docker-compose.yml
+└── pnpm-workspace.yaml
+```
 
-### Data Model
+### Data Storage
 
-**Organizations** → **Projects** → **Documents** → **Segments**
+**PostgreSQL** stores:
+- Users, organizations, projects
+- Documents and segments (translation content)
+- Translation memories (TM entries)
+- Term bases (terminology)
+- Activity logs, invitations
 
-**Translation Memories** and **Term Bases** are organization-level resources attached to projects. Each project can have multiple TMs/TBs, with one marked as writable for storing new translations.
+**MinIO** stores:
+- Original uploaded document files (PDF, DOCX, TXT, XLIFF)
+- Path format: `documents/{documentId}/original.{ext}`
+
+**Redis** stores:
+- BullMQ job queue (document parsing, exports)
+- Session data
+- Rate limiting counters
+- TM/TB match cache
+
+### Background Jobs
+
+The worker process handles CPU-intensive tasks asynchronously:
+
+| Job | Description |
+|-----|-------------|
+| `parse-document` | Extract text and segment uploaded documents |
+| `pre-translate` | Auto-fill segments from TM matches |
+| `export-pdf` | Generate PDF exports of translated documents |
 
 ### Security
 
 - Email verification required for account activation
 - Mandatory TOTP-based two-factor authentication
 - Backup codes for account recovery
-- JWT tokens for API authentication
+- JWT tokens with configurable expiration
+- Argon2 password hashing
+- Rate limiting on authentication endpoints
+
+### Data Model
+
+```
+Organizations
+    └── Projects
+    │       └── Documents
+    │               └── Segments
+    │
+    ├── Translation Memories (TM)
+    │       └── TM Entries (source/target pairs)
+    │
+    ├── Term Bases (TB)
+    │       └── Terms (source/target/definition)
+    │
+    └── Members (user-role assignments)
+```
+
+Projects can have multiple TMs and TBs attached, with one of each marked as "writable" for storing new translations.
 
 ## User Roles
 
@@ -97,3 +166,71 @@ REST API at `/api/v1` with endpoints:
 - **Activity logging**: Track changes per document and project
 - **TMX/TBX import**: Standard interchange formats for TM and TB data
 - **Document export**: Download translated documents in original or text format
+
+## Deployment
+
+### Requirements
+
+- Docker and Docker Compose
+- 2GB+ RAM recommended
+- Ports: 5063 (web), 5064 (api), 5065 (redis), 5066 (postgres), 9000-9001 (minio)
+
+### Quick Start
+
+```bash
+# Clone and configure
+git clone <repo>
+cd oxy
+cp .env.example .env
+# Edit .env with your settings (passwords, JWT secret, etc.)
+
+# Start all services
+docker compose up -d
+
+# Run database migrations
+docker compose exec api node dist/db/migrate.js
+
+# View logs
+docker compose logs -f
+```
+
+### Environment Variables
+
+Key variables in `.env`:
+
+| Variable | Description |
+|----------|-------------|
+| `POSTGRES_PASSWORD` | Database password |
+| `REDIS_PASSWORD` | Redis password |
+| `JWT_SECRET` | Secret for JWT signing (min 32 chars) |
+| `RESEND_API_KEY` | Resend API key for emails (optional) |
+| `APP_URL` | Public URL of the web app |
+| `VITE_API_URL` | Public URL of the API |
+
+See `.env.example` for full configuration options.
+
+## Development
+
+```bash
+# Install dependencies
+pnpm install
+
+# Start database containers
+pnpm db:up
+
+# Run migrations
+pnpm db:migrate
+
+# Start dev servers (api + web)
+pnpm dev
+
+# Type check
+pnpm typecheck
+
+# Lint
+pnpm lint
+```
+
+## License
+
+MIT
