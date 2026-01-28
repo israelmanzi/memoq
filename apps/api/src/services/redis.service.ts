@@ -1,4 +1,4 @@
-import Redis from 'ioredis';
+import Redis, { RedisOptions } from 'ioredis';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
@@ -6,22 +6,32 @@ let redisClient: Redis | null = null;
 let isConnected = false;
 
 /**
+ * Get Redis connection options from env
+ */
+function getRedisOptions(): RedisOptions {
+  // Use explicit params for more reliable connections
+  return {
+    host: env.REDIS_HOST,
+    port: env.REDIS_PORT,
+    password: env.REDIS_PASSWORD || undefined,
+    maxRetriesPerRequest: 3,
+    retryStrategy(times) {
+      const delay = Math.min(times * 50, 2000);
+      return delay;
+    },
+    lazyConnect: true,
+  };
+}
+
+/**
  * Get or create the Redis client singleton
  */
 export function getRedisClient(): Redis {
   if (!redisClient) {
-    if (!env.REDIS_URL) {
-      throw new Error('REDIS_URL is not configured');
-    }
+    const options = getRedisOptions();
+    logger.info({ host: options.host, port: options.port }, 'Creating Redis client');
 
-    redisClient = new Redis(env.REDIS_URL, {
-      maxRetriesPerRequest: 3,
-      retryStrategy(times) {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-      },
-      lazyConnect: true,
-    });
+    redisClient = new Redis(options);
 
     redisClient.on('connect', () => {
       isConnected = true;
@@ -50,7 +60,7 @@ export function getRedisClient(): Redis {
  * Initialize Redis connection
  */
 export async function initRedis(): Promise<void> {
-  if (!env.REDIS_URL) {
+  if (!isRedisEnabled()) {
     logger.info('Redis not configured, skipping initialization');
     return;
   }
@@ -60,10 +70,10 @@ export async function initRedis(): Promise<void> {
 }
 
 /**
- * Check if Redis is enabled
+ * Check if Redis is enabled (either via URL or explicit host)
  */
 export function isRedisEnabled(): boolean {
-  return !!env.REDIS_URL;
+  return !!(env.REDIS_URL || env.REDIS_HOST);
 }
 
 /**
@@ -113,11 +123,14 @@ export async function closeRedis(): Promise<void> {
  * BullMQ requires separate connections for queue and worker
  */
 export function createRedisConnection(): Redis {
-  if (!env.REDIS_URL) {
-    throw new Error('REDIS_URL is not configured');
+  if (!isRedisEnabled()) {
+    throw new Error('Redis is not configured');
   }
 
-  return new Redis(env.REDIS_URL, {
+  return new Redis({
+    host: env.REDIS_HOST,
+    port: env.REDIS_PORT,
+    password: env.REDIS_PASSWORD || undefined,
     maxRetriesPerRequest: null, // Required for BullMQ
   });
 }

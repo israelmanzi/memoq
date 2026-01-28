@@ -28,12 +28,17 @@ RUN pnpm --filter @oxy/shared build && \
 # Create production deployment
 RUN pnpm --filter @oxy/api deploy --prod /app/deploy
 
-# Production stage
+# Production stage - using full bookworm for better networking support
 FROM node:20-bookworm-slim AS runner
 
-# Add tini for proper signal handling (PID 1)
-RUN apt-get update && apt-get install -y --no-install-recommends tini \
-    && rm -rf /var/lib/apt/lists/*
+# Install essential tools for networking and debugging
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini \
+    dumb-init \
+    netcat-openbsd \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Add non-root user for security
 RUN groupadd --system --gid 1001 nodejs && \
@@ -56,5 +61,6 @@ USER oxy
 
 EXPOSE 3000
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# Use dumb-init as PID 1 (more reliable than tini for signal handling)
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "dist/index.js"]

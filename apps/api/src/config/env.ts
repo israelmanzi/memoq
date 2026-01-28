@@ -21,8 +21,18 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   API_PORT: z.coerce.number().default(3000),
   API_HOST: z.string().default('localhost'),
-  DATABASE_URL: z.string(),
+  // Database - support both URL and explicit params
+  DATABASE_URL: z.string().optional(),
+  DB_HOST: z.string().default('localhost'),
+  DB_PORT: z.coerce.number().default(5432),
+  DB_USER: z.string().default('oxy'),
+  DB_PASSWORD: z.string().optional(),
+  DB_NAME: z.string().default('oxy'),
+  // Redis - support both URL and explicit params
   REDIS_URL: z.string().optional(),
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.coerce.number().default(6379),
+  REDIS_PASSWORD: z.string().optional(),
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default('7d'),
   // Email (Resend)
