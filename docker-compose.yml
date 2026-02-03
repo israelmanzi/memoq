@@ -45,7 +45,7 @@ services:
       - minio_data:/data
     command: server /data --address ":${MINIO_PORT:-9000}" --console-address ":${MINIO_CONSOLE_PORT:-9001}"
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-f", "http://localhost:${MINIO_PORT:-9000}/minio/health/live"]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -87,12 +87,16 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-oxy-documents}
+      # PDF Converter
+      PDF_CONVERTER_URL: http://127.0.0.1:${PDF_CONVERTER_PORT:-8001}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      pdf-converter:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:${API_PORT:-5064}/health"]
@@ -132,12 +136,16 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-oxy-documents}
+      # PDF Converter
+      PDF_CONVERTER_URL: http://127.0.0.1:${PDF_CONVERTER_PORT:-8001}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      pdf-converter:
         condition: service_healthy
 
   web:
@@ -154,6 +162,20 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+  pdf-converter:
+    build: ./services/pdf-converter
+    container_name: oxy-pdf-converter
+    restart: unless-stopped
+    network_mode: "host"
+    environment:
+      PORT: ${PDF_CONVERTER_PORT:-8001}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:${PDF_CONVERTER_PORT:-8001}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 volumes:
   postgres_data:

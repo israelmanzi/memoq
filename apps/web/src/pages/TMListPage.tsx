@@ -539,14 +539,19 @@ function CreateTMModal({
   const [name, setName] = useState('');
   const [sourceLanguage, setSourceLanguage] = useState('en');
   const [targetLanguage, setTargetLanguage] = useState('');
+  const [error, setError] = useState('');
 
   const createMutation = useMutation({
     mutationFn: () => tmApi.create(orgId, { name, sourceLanguage, targetLanguage }),
     onSuccess,
+    onError: (err: any) => {
+      setError(err.data?.error || err.message || 'Failed to create Translation Memory');
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     createMutation.mutate();
   };
 
@@ -566,6 +571,12 @@ function CreateTMModal({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
       <div className="bg-surface-alt border border-border shadow-xl w-full max-w-md p-4" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-base font-semibold text-text mb-4">Create Translation Memory</h2>
+
+        {error && (
+          <div className="mb-4 p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

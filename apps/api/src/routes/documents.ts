@@ -34,14 +34,21 @@ import {
   propagateTranslation,
 } from '../services/project.service.js';
 import { getMembership } from '../services/org.service.js';
+import { findUserById } from '../services/auth.service.js';
+import { sendDocumentAssignmentEmail, isEmailEnabled } from '../services/email.service.js';
 import { findMatches, addTranslationUnit, concordanceSearch } from '../services/tm.service.js';
 import { findTermsInText } from '../services/tb.service.js';
 import { listProjectResources } from '../services/project.service.js';
 import { parseFile, detectFileType, getSupportedExtensions, isBinaryFileType } from '../services/file-parser.service.js';
-import { exportDocument, getSupportedExportFormats, getExportFormatsForFileType, type ExportFormat } from '../services/file-exporter.service.js';
-import { exportToPdf } from '../services/pdf-exporter.service.js';
+import { exportDocument, exportToDocxInPlace, getSupportedExportFormats, getExportFormatsForFileType, type ExportFormat } from '../services/file-exporter.service.js';
+import { isV2Metadata, type DocxStructureMetadataV2 } from '../services/docx-parser.service.js';
+import { isPdfV2Metadata, type PdfStructureMetadataV2 } from '../services/pdf-parser.service.js';
+import { exportToPdf, exportToPdfInPlace } from '../services/pdf-exporter.service.js';
 import { uploadFile, getFile, generateStorageKey, getMimeType } from '../services/storage.service.js';
 import { logActivity } from '../services/activity.service.js';
+import { db } from '../db/index.js';
+import { documents } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 const createDocumentSchema = z.object({
   name: z.string().min(1).max(255),
@@ -213,6 +220,9 @@ export async function documentRoutes(app: FastifyInstance) {
         const isBinary = parseResult.isBinary || isBinaryFileType(fileType);
         let fileStorageKey: string | null = null;
 
+        // For PDFs converted to DOCX, include the converted DOCX storage key in metadata
+        let structureMetadata = parseResult.structureMetadata || null;
+
         // Create document first to get ID for storage key
         const doc = await createDocument({
           projectId,
@@ -222,7 +232,7 @@ export async function documentRoutes(app: FastifyInstance) {
           createdBy: userId,
           // Binary file fields
           fileStorageKey: null, // Will update after upload
-          structureMetadata: parseResult.structureMetadata || null,
+          structureMetadata,
           pageCount: parseResult.pageCount || null,
           isBinaryFormat: isBinary,
         });
@@ -234,6 +244,29 @@ export async function documentRoutes(app: FastifyInstance) {
             await uploadFile(fileStorageKey, buffer, getMimeType(fileType));
             // Update document with storage key
             await updateDocumentStorageKey(doc.id, fileStorageKey);
+
+            // For PDFs with converted DOCX, also upload the converted DOCX
+            if (fileType === 'pdf' && parseResult.convertedDocxBuffer && parseResult.convertedDocxMetadata) {
+              const convertedDocxKey = generateStorageKey(doc.id, filename.replace(/\.pdf$/i, '_converted.docx'));
+              await uploadFile(convertedDocxKey, parseResult.convertedDocxBuffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+              // Update structureMetadata to include converted DOCX info
+              // Use a combined metadata object that includes both DOCX metadata and PDF conversion info
+              const enhancedMetadata = {
+                ...parseResult.convertedDocxMetadata,
+                originalFileType: 'pdf' as const,
+                convertedDocxStorageKey: convertedDocxKey,
+              };
+              structureMetadata = enhancedMetadata as unknown as typeof structureMetadata;
+
+              // Update document with the enhanced metadata
+              await db
+                .update(documents)
+                .set({ structureMetadata })
+                .where(eq(documents.id, doc.id));
+
+              request.log.info({ documentId: doc.id, convertedDocxKey }, 'Uploaded converted DOCX for PDF document');
+            }
           } catch (storageError: any) {
             request.log.warn({ err: storageError }, 'Failed to upload to storage, falling back to database');
             // Storage not available - could fall back to base64 in DB if needed
@@ -545,8 +578,19 @@ export async function documentRoutes(app: FastifyInstance) {
 
       // Validate format based on document type
       const availableFormats = getExportFormatsForFileType(doc.fileType);
-      // Add PDF export option for all documents
-      const allFormats = [...availableFormats, 'pdf'];
+
+      // Check if PDF has converted DOCX
+      const docxMetadata = doc.structureMetadata as { convertedDocxStorageKey?: string } | null;
+      const pdfHasConvertedDocx = doc.fileType === 'pdf' && docxMetadata?.convertedDocxStorageKey;
+
+      // For PDF documents with converted DOCX: offer DOCX export (not PDF back-conversion)
+      // PDF → DOCX → PDF conversion loses too much quality
+      let allFormats: string[];
+      if (pdfHasConvertedDocx) {
+        allFormats = ['txt', 'xliff', 'docx']; // DOCX instead of PDF for quality
+      } else {
+        allFormats = [...availableFormats, 'pdf'];
+      }
 
       if (!allFormats.includes(format)) {
         return reply.status(400).send({
@@ -554,10 +598,10 @@ export async function documentRoutes(app: FastifyInstance) {
         });
       }
 
-      // DOCX export only for DOCX documents
-      if (format === 'docx' && doc.fileType !== 'docx') {
+      // DOCX export only for DOCX documents or PDFs with converted DOCX
+      if (format === 'docx' && doc.fileType !== 'docx' && !pdfHasConvertedDocx) {
         return reply.status(400).send({
-          error: 'DOCX export is only available for DOCX documents',
+          error: 'DOCX export is only available for DOCX documents or PDFs with conversion enabled',
         });
       }
 
@@ -576,8 +620,40 @@ export async function documentRoutes(app: FastifyInstance) {
 
       let result: { content: string | Buffer; mimeType: string; extension: string };
 
-      if (format === 'pdf') {
-        // Use PDF exporter for PDF output
+      // Check if PDF has a converted DOCX (from PDF conversion service)
+      const metadata = doc.structureMetadata as { convertedDocxStorageKey?: string; version?: number } | null;
+      const hasConvertedDocx = doc.fileType === 'pdf' && metadata?.convertedDocxStorageKey && metadata?.version === 2;
+
+      // For PDF documents with converted DOCX, DOCX export is handled below
+      // We don't convert back to PDF as it loses too much quality
+
+      if (format === 'pdf' && doc.fileType === 'pdf' && doc.fileStorageKey && isPdfV2Metadata(doc.structureMetadata) && !hasConvertedDocx) {
+        // Legacy: Use in-place replacement for PDF with v2 metadata (overlay approach)
+        try {
+          const originalPdfBuffer = await getFile(doc.fileStorageKey);
+          result = await exportToPdfInPlace({
+            originalPdfBuffer,
+            segments: segments.map((seg) => ({
+              sourceText: seg.sourceText,
+              targetText: seg.targetText,
+            })),
+            structureMetadata: doc.structureMetadata as PdfStructureMetadataV2,
+          });
+        } catch (inPlaceError) {
+          // Fall back to standard PDF export if in-place fails
+          request.log.warn({ error: inPlaceError }, 'In-place PDF export failed, falling back to standard export');
+          result = await exportToPdf({
+            segments: segments.map((seg) => ({
+              sourceText: seg.sourceText,
+              targetText: seg.targetText,
+            })),
+            filename: doc.name,
+            sourceLanguage: project.sourceLanguage,
+            targetLanguage: project.targetLanguage,
+          });
+        }
+      } else if (format === 'pdf') {
+        // Use standard PDF exporter (non-PDF source or no v2 metadata)
         result = await exportToPdf({
           segments: segments.map((seg) => ({
             sourceText: seg.sourceText,
@@ -587,8 +663,59 @@ export async function documentRoutes(app: FastifyInstance) {
           sourceLanguage: project.sourceLanguage,
           targetLanguage: project.targetLanguage,
         });
+      } else if (format === 'docx' && hasConvertedDocx) {
+        // DOCX export for PDF with converted DOCX
+        try {
+          const convertedDocxBuffer = await getFile(metadata.convertedDocxStorageKey!);
+          result = await exportToDocxInPlace({
+            originalDocxBuffer: convertedDocxBuffer,
+            segments: segments.map((seg) => ({
+              sourceText: seg.sourceText,
+              targetText: seg.targetText,
+              status: seg.status ?? undefined,
+            })),
+            structureMetadata: doc.structureMetadata as DocxStructureMetadataV2,
+          });
+          request.log.info({ documentId }, 'Exported PDF as DOCX using converted DOCX');
+        } catch (docxError) {
+          request.log.warn({ error: docxError }, 'DOCX export from converted PDF failed');
+          return reply.status(500).send({ error: 'Failed to export document' });
+        }
+      } else if (format === 'docx' && doc.fileType === 'docx' && doc.fileStorageKey && isV2Metadata(doc.structureMetadata)) {
+        // Use in-place replacement for DOCX with v2 metadata (preserves all formatting)
+        try {
+          const originalDocxBuffer = await getFile(doc.fileStorageKey);
+          result = await exportToDocxInPlace({
+            originalDocxBuffer,
+            segments: segments.map((seg) => ({
+              sourceText: seg.sourceText,
+              targetText: seg.targetText,
+              status: seg.status ?? undefined,
+            })),
+            structureMetadata: doc.structureMetadata as DocxStructureMetadataV2,
+          });
+        } catch (inPlaceError) {
+          // Fall back to rebuild if in-place fails
+          request.log.warn({ error: inPlaceError }, 'In-place DOCX export failed, falling back to rebuild');
+          result = await exportDocument(
+            {
+              filename: doc.name,
+              sourceLanguage: project.sourceLanguage,
+              targetLanguage: project.targetLanguage,
+              segments: segments.map((seg) => ({
+                sourceText: seg.sourceText,
+                targetText: seg.targetText,
+                status: seg.status ?? undefined,
+              })),
+              originalContent: doc.originalContent,
+              fileType: doc.fileType,
+              structureMetadata: doc.structureMetadata as any,
+            },
+            format as ExportFormat
+          );
+        }
       } else {
-        // Use standard document exporter
+        // Use standard document exporter (for non-DOCX or legacy DOCX without v2 metadata)
         result = await exportDocument(
           {
             filename: doc.name,
@@ -607,9 +734,9 @@ export async function documentRoutes(app: FastifyInstance) {
         );
       }
 
-      // Generate export filename
+      // Generate export filename: originalname_Translated.ext
       const baseName = doc.name.replace(/\.[^.]+$/, '');
-      const exportFilename = `${baseName}_translated.${result.extension}`;
+      const exportFilename = `${baseName}_Translated.${result.extension}`;
 
       // Log activity
       await logActivity({
@@ -1218,6 +1345,30 @@ export async function documentRoutes(app: FastifyInstance) {
         documentId,
         metadata: { assignedUserId: parsed.data.userId, role: parsed.data.role },
       });
+
+      // Send email notification to the assigned user
+      if (isEmailEnabled()) {
+        try {
+          const [assignedUser, assignerUser] = await Promise.all([
+            findUserById(parsed.data.userId),
+            findUserById(userId),
+          ]);
+
+          if (assignedUser && assignerUser) {
+            await sendDocumentAssignmentEmail(
+              assignedUser.email,
+              assignedUser.name,
+              doc.name,
+              project.name,
+              parsed.data.role,
+              assignerUser.name
+            );
+          }
+        } catch (emailError) {
+          // Log but don't fail the assignment if email fails
+          request.log.warn({ error: emailError }, 'Failed to send assignment notification email');
+        }
+      }
 
       return reply.status(201).send(assignment);
     }

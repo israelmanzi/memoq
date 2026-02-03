@@ -1,6 +1,8 @@
 import { XMLParser } from 'fast-xml-parser';
-import { parseDocx, type DocxStructureMetadata } from './docx-parser.service.js';
-import { parsePdf } from './pdf-parser.service.js';
+import { parseDocx, type DocxStructureMetadata, type DocxStructureMetadataV2 } from './docx-parser.service.js';
+import { parsePdf, type PdfStructureMetadata } from './pdf-parser.service.js';
+import { isConversionEnabled, convertPdfToDocx } from './conversion.service.js';
+import { logger } from '../config/logger.js';
 
 export interface ParsedSegment {
   sourceText: string;
@@ -12,9 +14,12 @@ export interface ParseResult {
   sourceLanguage?: string;
   targetLanguage?: string;
   originalName?: string;
-  structureMetadata?: DocxStructureMetadata;
+  structureMetadata?: DocxStructureMetadata | PdfStructureMetadata;
   pageCount?: number;
   isBinary?: boolean;
+  // For PDFs converted to DOCX, store the converted DOCX buffer
+  convertedDocxBuffer?: Buffer;
+  convertedDocxMetadata?: DocxStructureMetadataV2;
 }
 
 /**
@@ -54,10 +59,36 @@ export async function parseFile(
 
     case 'pdf':
     case 'application/pdf': {
+      // If PDF conversion service is enabled, convert PDF to DOCX for better layout preservation
+      if (isConversionEnabled()) {
+        try {
+          logger.info('Converting PDF to DOCX for better text extraction and layout preservation');
+          const conversionResult = await convertPdfToDocx(buffer, { filename });
+
+          // Parse the converted DOCX (which has proper text position tracking)
+          const docxResult = await parseDocx(conversionResult.docxBuffer);
+
+          return {
+            segments: docxResult.segments,
+            structureMetadata: docxResult.structureMetadata,
+            isBinary: true,
+            originalName: filename,
+            // Store converted DOCX for later export
+            convertedDocxBuffer: conversionResult.docxBuffer,
+            convertedDocxMetadata: docxResult.structureMetadata,
+          };
+        } catch (conversionError) {
+          logger.warn({ error: conversionError }, 'PDF to DOCX conversion failed, falling back to direct PDF parsing');
+          // Fall through to direct PDF parsing
+        }
+      }
+
+      // Fall back to direct PDF parsing (less accurate but no external dependency)
       const pdfResult = await parsePdf(buffer);
       return {
         segments: pdfResult.segments,
         pageCount: pdfResult.pageCount,
+        structureMetadata: pdfResult.structureMetadata,
         isBinary: true,
         originalName: filename,
       };

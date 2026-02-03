@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useNavigate } from '@tanstack/react-router';
 import { projectsApi, tmApi, tbApi, activityApi, type ProjectDeleteInfo, type DocumentWithStats } from '../api';
 import { DocumentAssignmentsModal } from '../components/DocumentAssignmentsModal';
 import { useOrgStore } from '../stores/org';
+import { useMultiUpload } from '../hooks/useMultiUpload';
 import { Pagination } from '../components/Pagination';
 import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
 import { ActivityFeed } from '../components/ActivityFeed';
-import { formatProjectStatus, formatWorkflowType, formatWorkflowStatus } from '../utils/formatters';
+import { formatProjectStatus, formatWorkflowType, formatWorkflowStatus, formatRelativeTime, formatAbsoluteDateTime } from '../utils/formatters';
 import type { ProjectStatus, WorkflowType, DocumentAssignmentFilter, DocumentRole, DocumentAssignmentInfo } from '@oxy/shared';
 
 const DOCS_PAGE_SIZE = 10;
@@ -384,7 +385,7 @@ export function ProjectDetailPage() {
           </div>
 
           {/* Table header */}
-          <div className="grid grid-cols-[1fr_56px_64px_72px_72px_80px_200px_40px] gap-3 px-4 py-2.5 bg-surface-panel border-b border-border text-xs font-medium text-text-secondary uppercase tracking-wide">
+          <div className="grid grid-cols-[1fr_48px_52px_70px_60px_72px_150px_32px] gap-2 px-4 py-2.5 bg-surface-panel border-b border-border text-xs font-medium text-text-secondary uppercase tracking-wide">
             <SortHeader label="Name" sortKey="name" current={docSort} onSort={setDocSort} />
             <SortHeader label="Type" sortKey="fileType" current={docSort} onSort={setDocSort} className="text-center justify-center" />
             <SortHeader label="Segs" sortKey="totalSegments" current={docSort} onSort={setDocSort} className="text-center justify-center" />
@@ -433,7 +434,7 @@ export function ProjectDetailPage() {
                     return (
                       <div
                         key={doc.id}
-                        className="grid grid-cols-[1fr_56px_64px_72px_72px_80px_200px_40px] gap-3 px-4 py-2.5 hover:bg-surface-hover items-center group"
+                        className="grid grid-cols-[1fr_48px_52px_70px_60px_72px_150px_32px] gap-2 px-4 py-2.5 hover:bg-surface-hover items-center group"
                       >
                         {/* Name - clickable link */}
                         <Link
@@ -470,8 +471,8 @@ export function ProjectDetailPage() {
                         </div>
 
                         {/* Upload Date */}
-                        <div className="text-center text-xs text-text-muted" title={new Date(doc.createdAt).toLocaleString()}>
-                          {new Date(doc.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        <div className="text-center text-xs text-text-muted" title={formatAbsoluteDateTime(doc.createdAt)}>
+                          {formatRelativeTime(doc.createdAt)}
                         </div>
 
                         {/* Progress */}
@@ -688,15 +689,28 @@ function AddDocumentModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const uploadMutation = useMutation({
-    mutationFn: (file: File) => projectsApi.uploadDocument(projectId, file),
-    onSuccess,
-    onError: (err: any) => {
-      setError(err.data?.error || err.message || 'Upload failed');
+  const {
+    files,
+    addFiles,
+    removeFile,
+    clearFiles,
+    startUpload,
+    cancelUpload,
+    isUploading,
+    overallProgress,
+    currentStage,
+    summary,
+    validationError,
+  } = useMultiUpload({
+    projectId,
+    maxFiles: 5,
+    onComplete: (summary) => {
+      if (summary.successful > 0) {
+        onSuccess();
+      }
     },
   });
 
@@ -713,39 +727,22 @@ function AddDocumentModal({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    setError('');
-
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) {
-      validateAndSetFile(droppedFile);
-    }
+    addFiles(e.dataTransfer.files);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setError('');
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      validateAndSetFile(selectedFile);
+    if (e.target.files) {
+      addFiles(e.target.files);
     }
-  };
-
-  const validateAndSetFile = (f: File) => {
-    const ext = f.name.split('.').pop()?.toLowerCase();
-    const supportedExts = ['txt', 'xliff', 'xlf', 'sdlxliff', 'docx', 'pdf'];
-
-    if (!ext || !supportedExts.includes(ext)) {
-      setError(`Unsupported file type. Supported: ${supportedExts.join(', ')}`);
-      return;
+    // Reset input so same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
-
-    setFile(f);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (file) {
-      uploadMutation.mutate(file);
-    }
+    startUpload();
   };
 
   const formatFileSize = (bytes: number) => {
@@ -754,60 +751,92 @@ function AddDocumentModal({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return (
+          <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" strokeWidth={2} />
+          </svg>
+        );
+      case 'uploading':
+      case 'processing':
+        return (
+          <svg className="w-4 h-4 text-accent animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+        );
+      case 'done':
+        return (
+          <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+        );
+      case 'error':
+        return (
+          <svg className="w-4 h-4 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pending': return 'Pending';
+      case 'uploading': return 'Uploading...';
+      case 'processing': return 'Processing...';
+      case 'done': return 'Done';
+      case 'error': return 'Failed';
+      default: return status;
+    }
+  };
+
+  const pendingCount = files.filter(f => f.status === 'pending').length;
+  const canAddMore = files.length < 5 && !isUploading && !summary;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface-alt border border-border shadow-panel w-full max-w-lg">
+      <div className="bg-surface-alt border border-border shadow-panel w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="px-4 py-3 border-b border-border bg-surface-panel">
-          <h2 className="text-sm font-semibold text-text">Upload Document</h2>
-          <p className="text-xs text-text-muted mt-0.5">Add a file to translate in this project</p>
+          <h2 className="text-sm font-semibold text-text">Upload Documents</h2>
+          <p className="text-xs text-text-muted mt-0.5">Add up to 5 files to translate in this project</p>
         </div>
 
-        {error && (
-          <div className="mx-4 mt-4 p-2.5 bg-danger-bg border border-danger/30 text-sm text-danger">
-            {error}
+        {validationError && (
+          <div className="mx-4 mt-4 p-2.5 bg-warning-bg border border-warning/30 text-sm text-warning">
+            {validationError}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          {/* Drop zone */}
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`border-2 border-dashed p-6 text-center transition-colors ${
-              isDragging
-                ? 'border-accent bg-accent/10'
-                : file
-                  ? 'border-success bg-success-bg'
+        <form onSubmit={handleSubmit} className="p-4 space-y-4 flex-1 overflow-hidden flex flex-col">
+          {/* Drop zone - only show when can add more files */}
+          {canAddMore && (
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed p-6 text-center transition-colors ${
+                isDragging
+                  ? 'border-accent bg-accent/10'
                   : 'border-border hover:border-border-dark'
-            }`}
-          >
-            {file ? (
-              <div className="space-y-2">
-                <svg className="w-8 h-8 mx-auto text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-sm font-medium text-text">{file.name}</p>
-                <p className="text-xs text-text-muted">{formatFileSize(file.size)}</p>
-                <button
-                  type="button"
-                  onClick={() => setFile(null)}
-                  className="text-xs text-danger hover:text-danger-hover"
-                >
-                  Remove
-                </button>
-              </div>
-            ) : (
+              }`}
+            >
               <div className="space-y-2">
                 <svg className="w-10 h-10 mx-auto text-border" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <p className="text-sm text-text-secondary">
-                  Drag and drop your file here, or{' '}
+                  Drag and drop files here, or{' '}
                   <label className="text-accent hover:text-accent-hover cursor-pointer">
                     browse
                     <input
+                      ref={fileInputRef}
                       type="file"
+                      multiple
                       onChange={handleFileSelect}
                       accept=".txt,.xliff,.xlf,.sdlxliff,.docx,.pdf"
                       className="hidden"
@@ -818,24 +847,137 @@ function AddDocumentModal({
                   Supported: TXT, XLIFF, XLF, SDLXLIFF, DOCX, PDF
                 </p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* File list */}
+          {files.length > 0 && (
+            <div className="space-y-2 flex-1 overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-text-secondary">
+                  Files ({files.length}/5)
+                </span>
+                {!isUploading && !summary && (
+                  <button
+                    type="button"
+                    onClick={clearFiles}
+                    className="text-xs text-text-muted hover:text-danger"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+              <div className="border border-border divide-y divide-border bg-surface">
+                {files.map((item) => (
+                  <div key={item.id} className="px-3 py-2 flex items-center gap-3">
+                    {getStatusIcon(item.status)}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text truncate">{item.file.name}</p>
+                      <p className="text-xs text-text-muted">
+                        {formatFileSize(item.file.size)}
+                        {item.error && <span className="text-danger ml-2">{item.error}</span>}
+                      </p>
+                    </div>
+                    <span className={`text-xs ${
+                      item.status === 'done' ? 'text-success' :
+                      item.status === 'error' ? 'text-danger' :
+                      'text-text-muted'
+                    }`}>
+                      {item.status === 'uploading' ? `${item.progress}%` : getStatusText(item.status)}
+                    </span>
+                    {item.status === 'pending' && !isUploading && (
+                      <button
+                        type="button"
+                        onClick={() => removeFile(item.id)}
+                        className="text-text-muted hover:text-danger"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Overall progress */}
+          {isUploading && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-text-secondary">{currentStage}</span>
+                <span className="text-text-muted">{overallProgress}%</span>
+              </div>
+              <div className="h-2 bg-border rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-accent transition-all duration-300"
+                  style={{ width: `${overallProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Summary */}
+          {summary && (
+            <div className={`p-3 border ${
+              summary.failed === 0 ? 'bg-success-bg border-success/30' : 'bg-warning-bg border-warning/30'
+            }`}>
+              <p className="text-sm font-medium text-text">
+                Upload Complete
+              </p>
+              <p className="text-xs text-text-secondary mt-1">
+                {summary.successful} of {summary.total} file{summary.total !== 1 ? 's' : ''} uploaded successfully
+                {summary.failed > 0 && `, ${summary.failed} failed`}
+              </p>
+              {summary.failed > 0 && (
+                <div className="mt-2 text-xs text-danger">
+                  Failed files:
+                  <ul className="mt-1 space-y-0.5">
+                    {summary.results.filter(r => !r.success).map((r, i) => (
+                      <li key={i}>{r.filename}: {r.error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-hover focus:outline-none focus:ring-1 focus:ring-accent"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!file || uploadMutation.isPending}
-              className="px-3 py-1.5 bg-accent text-text-inverse text-sm font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1"
-            >
-              {uploadMutation.isPending ? 'Uploading...' : 'Upload'}
-            </button>
+            {isUploading ? (
+              <button
+                type="button"
+                onClick={cancelUpload}
+                className="px-3 py-1.5 text-sm text-danger hover:bg-danger-bg focus:outline-none focus:ring-1 focus:ring-danger"
+              >
+                Cancel
+              </button>
+            ) : summary ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-3 py-1.5 bg-accent text-text-inverse text-sm font-medium hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1"
+              >
+                Done
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-hover focus:outline-none focus:ring-1 focus:ring-accent"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={pendingCount === 0}
+                  className="px-3 py-1.5 bg-accent text-text-inverse text-sm font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1"
+                >
+                  Upload {pendingCount > 0 && `(${pendingCount})`}
+                </button>
+              </>
+            )}
           </div>
         </form>
       </div>

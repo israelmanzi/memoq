@@ -220,6 +220,56 @@ export async function sendMfaResetEmail(
 }
 
 /**
+ * Send document assignment notification
+ */
+export async function sendDocumentAssignmentEmail(
+  email: string,
+  name: string,
+  documentName: string,
+  projectName: string,
+  role: string,
+  assignerName: string
+): Promise<void> {
+  const loginUrl = `${env.APP_URL}/login`;
+  const roleDisplay = role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You've been assigned to a document</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: #f8f9fa; padding: 30px; border-radius: 8px;">
+    <h1 style="color: #1a1a1a; margin-top: 0;">New Assignment</h1>
+    <p>Hi ${escapeHtml(name)},</p>
+    <p><strong>${escapeHtml(assignerName)}</strong> has assigned you as <strong>${roleDisplay}</strong> for the following document:</p>
+    <div style="background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-size: 14px; color: #666;">Project</p>
+      <p style="margin: 0 0 16px 0; font-weight: 600;">${escapeHtml(projectName)}</p>
+      <p style="margin: 0 0 8px 0; font-size: 14px; color: #666;">Document</p>
+      <p style="margin: 0; font-weight: 600;">${escapeHtml(documentName)}</p>
+    </div>
+    <p style="text-align: center; margin: 30px 0;">
+      <a href="${loginUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500;">Go to OXY</a>
+    </p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+    <p style="color: #666; font-size: 12px;">You received this email because you were assigned to a document in OXY.</p>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  await sendEmail({
+    to: email,
+    subject: `You've been assigned to "${documentName}" as ${roleDisplay}`,
+    html,
+  });
+}
+
+/**
  * Send MFA disabled notification
  */
 export async function sendMFADisabledEmail(email: string, name: string): Promise<void> {

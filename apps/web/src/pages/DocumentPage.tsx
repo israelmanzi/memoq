@@ -228,6 +228,9 @@ export function DocumentPage() {
   // Check if document is a PDF (for showing viewer)
   const isPdf = document?.fileType === 'pdf';
   const isDocx = document?.fileType === 'docx';
+  // Check if PDF has a converted DOCX (for export options)
+  const structureMetadata = document?.structureMetadata as { convertedDocxStorageKey?: string } | null;
+  const pdfHasConvertedDocx = isPdf && !!structureMetadata?.convertedDocxStorageKey;
   // PDF viewer only shows if we have the file stored
   const showPdfViewer = isPdf && !!document?.fileStorageKey;
 
@@ -343,7 +346,12 @@ export function DocumentPage() {
                 <div className="absolute right-0 mt-0.5 w-36 bg-surface-alt border border-border shadow-panel py-0.5 z-20">
                   <button onClick={() => handleExport('xliff')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">XLIFF</button>
                   <button onClick={() => handleExport('txt')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">Plain Text</button>
-                  <button onClick={() => handleExport('pdf')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">PDF</button>
+                  {/* For PDF with converted DOCX, show DOCX export (PDF export loses quality) */}
+                  {pdfHasConvertedDocx ? (
+                    <button onClick={() => handleExport('docx')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">Word (DOCX)</button>
+                  ) : (
+                    <button onClick={() => handleExport('pdf')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">PDF</button>
+                  )}
                   {isDocx && <button onClick={() => handleExport('docx')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">Word (DOCX)</button>}
                 </div>
               </>

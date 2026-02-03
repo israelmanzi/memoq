@@ -61,6 +61,24 @@ export function DashboardLayout() {
   const orgs = orgsData?.items ?? [];
   const hasOrgs = orgs.length > 0;
 
+  // Auto-select org when orgs are loaded
+  useEffect(() => {
+    if (orgsLoading || orgs.length === 0) return;
+
+    // If no org selected, select the first one
+    if (!currentOrg) {
+      setCurrentOrg(orgs[0]!);
+      return;
+    }
+
+    // Validate that the persisted org still exists in user's org list
+    const orgStillExists = orgs.some(org => org.id === currentOrg.id);
+    if (!orgStillExists) {
+      // Persisted org no longer valid, select first available
+      setCurrentOrg(orgs[0]!);
+    }
+  }, [orgsLoading, orgs, currentOrg, setCurrentOrg]);
+
   return (
     <div className="min-h-screen bg-surface">
       {/* Header */}

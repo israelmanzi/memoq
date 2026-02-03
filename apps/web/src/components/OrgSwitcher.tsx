@@ -16,10 +16,7 @@ export function OrgSwitcher() {
 
   const orgs = orgsData?.items ?? [];
 
-  // Auto-select first org if none selected
-  if (!currentOrg && orgs.length > 0 && orgs[0]) {
-    setCurrentOrg(orgs[0]);
-  }
+  // Note: Auto-selection is handled in DashboardLayout useEffect
 
   const handleOrgCreated = async (newOrg: { id: string; name: string; slug: string }) => {
     await refetch();

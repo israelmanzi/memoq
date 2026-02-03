@@ -92,3 +92,68 @@ export function formatEnumLabel(value: string): string {
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
 }
+
+// Relative Time Formatting
+const RELATIVE_TIME_THRESHOLDS = [
+  { limit: 60, unit: 'second', divisor: 1 },
+  { limit: 3600, unit: 'minute', divisor: 60 },
+  { limit: 86400, unit: 'hour', divisor: 3600 },
+  { limit: 604800, unit: 'day', divisor: 86400 },
+  { limit: 2592000, unit: 'week', divisor: 604800 },
+  { limit: 31536000, unit: 'month', divisor: 2592000 },
+  { limit: Infinity, unit: 'year', divisor: 31536000 },
+] as const;
+
+/**
+ * Format a date as relative time (e.g., "2 hours ago", "3 days ago")
+ * Falls back to absolute date for dates older than a week
+ */
+export function formatRelativeTime(date: string | Date): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const now = new Date();
+  const diffSeconds = Math.floor((now.getTime() - d.getTime()) / 1000);
+
+  // Future dates
+  if (diffSeconds < 0) {
+    return 'Just now';
+  }
+
+  // Just now (less than 10 seconds)
+  if (diffSeconds < 10) {
+    return 'Just now';
+  }
+
+  // Find appropriate unit
+  for (const { limit, unit, divisor } of RELATIVE_TIME_THRESHOLDS) {
+    if (diffSeconds < limit) {
+      const value = Math.floor(diffSeconds / divisor);
+      const plural = value !== 1 ? 's' : '';
+      return `${value} ${unit}${plural} ago`;
+    }
+  }
+
+  // Fallback (shouldn't reach here)
+  return formatAbsoluteDateTime(d);
+}
+
+/**
+ * Format a date as absolute date and time (e.g., "Jan 15, 2024 2:30 PM")
+ */
+export function formatAbsoluteDateTime(date: string | Date): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * Format a date as short date (e.g., "Jan 15")
+ */
+export function formatShortDate(date: string | Date): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
