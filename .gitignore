@@ -62,3 +62,4 @@ CLAUDE.md
 .claude/
 
 test-files/
+*.pyc
