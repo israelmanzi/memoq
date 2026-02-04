@@ -49,6 +49,11 @@ const envSchema = z.object({
   MINIO_BUCKET: z.string().default('oxy-documents'),
   // Document Conversion (PDF Converter Microservice)
   PDF_CONVERTER_URL: z.string().optional(), // Python microservice URL (e.g., http://localhost:8001)
+  // Adobe PDF Services (for high-fidelity PDF extraction)
+  ADOBE_PDF_SERVICES_CLIENT_ID: z.string().optional(),
+  ADOBE_PDF_SERVICES_CLIENT_SECRET: z.string().optional(),
+  // Machine Translation (DeepL)
+  DEEPL_API_KEY: z.string().optional(), // DeepL API key (prefix with "free:" for free API)
   // Rate Limiting
   RATE_LIMIT_MAX: z.coerce.number().default(100),
   RATE_LIMIT_WINDOW: z.coerce.number().default(60000), // 1 minute in ms

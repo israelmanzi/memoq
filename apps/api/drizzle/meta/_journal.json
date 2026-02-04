@@ -43,6 +43,13 @@
       "when": 1769588432724,
       "tag": "0005_steady_alex_power",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1770190829960,
+      "tag": "0006_amusing_leper_queen",
+      "breakpoints": true
     }
   ]
 }

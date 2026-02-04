@@ -232,6 +232,8 @@ export const projects = pgTable(
     targetLanguage: text('target_language').notNull(),
     workflowType: text('workflow_type').default('single_review'), // simple, single_review, full_review
     status: text('status').default('active'), // active, completed, archived
+    // Deadline
+    deadline: timestamp('deadline', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -329,6 +331,11 @@ export const documents = pgTable(
     pageCount: integer('page_count'), // PDF page count
     isBinaryFormat: boolean('is_binary_format').default(false).notNull(),
     workflowStatus: text('workflow_status').default('translation'), // translation, review_1, review_2, complete
+    // Word counts
+    sourceWordCount: integer('source_word_count').default(0),
+    targetWordCount: integer('target_word_count').default(0),
+    // Deadline
+    deadline: timestamp('deadline', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -426,6 +433,7 @@ export const segmentsRelations = relations(segments, ({ one, many }) => ({
     references: [users.id],
   }),
   history: many(segmentHistory),
+  comments: many(segmentComments),
 }));
 
 // ============ Segment History ============
@@ -567,6 +575,53 @@ export const orgInvitationsRelations = relations(orgInvitations, ({ one }) => ({
   }),
   invitedByUser: one(users, {
     fields: [orgInvitations.invitedBy],
+    references: [users.id],
+  }),
+}));
+
+// ============ Segment Comments ============
+export const segmentComments = pgTable(
+  'segment_comments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    segmentId: uuid('segment_id')
+      .notNull()
+      .references(() => segments.id, { onDelete: 'cascade' }),
+    parentId: uuid('parent_id'), // For threaded replies (null = top-level comment)
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    resolved: boolean('resolved').default(false).notNull(),
+    resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_segment_comments_segment').on(table.segmentId),
+    index('idx_segment_comments_parent').on(table.parentId),
+    index('idx_segment_comments_user').on(table.userId),
+  ]
+);
+
+export const segmentCommentsRelations = relations(segmentComments, ({ one, many }) => ({
+  segment: one(segments, {
+    fields: [segmentComments.segmentId],
+    references: [segments.id],
+  }),
+  user: one(users, {
+    fields: [segmentComments.userId],
+    references: [users.id],
+  }),
+  parent: one(segmentComments, {
+    fields: [segmentComments.parentId],
+    references: [segmentComments.id],
+    relationName: 'replies',
+  }),
+  replies: many(segmentComments, { relationName: 'replies' }),
+  resolvedByUser: one(users, {
+    fields: [segmentComments.resolvedBy],
     references: [users.id],
   }),
 }));

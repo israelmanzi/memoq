@@ -16,6 +16,9 @@ import { activityRoutes } from './routes/activity.js';
 import { searchRoutes } from './routes/search.js';
 import { mfaRoutes } from './routes/mfa.js';
 import { invitationRoutes } from './routes/invitations.js';
+import { mtRoutes } from './routes/mt.js';
+import { qaRoutes } from './routes/qa.js';
+import { commentsRoutes } from './routes/comments.js';
 import { initRedis, checkRedisHealth, isRedisEnabled } from './services/redis.service.js';
 import { getJobStatus, isQueueEnabled } from './services/queue.service.js';
 
@@ -107,6 +110,9 @@ export async function buildApp() {
   await app.register(searchRoutes, { prefix: '/api/v1/search' });
   await app.register(mfaRoutes, { prefix: '/api/v1/mfa' });
   await app.register(invitationRoutes, { prefix: '/api/v1/invitations' });
+  await app.register(mtRoutes, { prefix: '/api/v1/mt' });
+  await app.register(qaRoutes, { prefix: '/api/v1/qa' });
+  await app.register(commentsRoutes, { prefix: '/api/v1/comments' });
 
   return app;
 }
