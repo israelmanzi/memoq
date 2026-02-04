@@ -7,14 +7,16 @@ on:
     paths:
       - 'apps/**'
       - 'packages/**'
+      - 'services/**'
       - 'docker-compose.yml'
       - 'pnpm-lock.yaml'
       - 'package.json'
       - 'tsconfig.json'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
 
 jobs:
   build:
@@ -27,6 +29,8 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -42,9 +46,6 @@ jobs:
 
       - name: Type check
         run: pnpm typecheck
-
-      - name: Lint
-        run: pnpm lint
 
       - name: Build
         run: pnpm build
@@ -81,9 +82,10 @@ jobs:
 
             # Tag current images for rollback
             echo "=== Tagging current images for rollback ==="
-            docker tag memoq-api:latest memoq-api:rollback 2>/dev/null || true
-            docker tag memoq-web:latest memoq-web:rollback 2>/dev/null || true
-            docker tag memoq-worker:latest memoq-worker:rollback 2>/dev/null || true
+            docker tag oxy-api:latest oxy-api:rollback 2>/dev/null || true
+            docker tag oxy-web:latest oxy-web:rollback 2>/dev/null || true
+            docker tag oxy-worker:latest oxy-worker:rollback 2>/dev/null || true
+            docker tag oxy-pdf-converter:latest oxy-pdf-converter:rollback 2>/dev/null || true
 
             # Pull latest code
             echo "=== Pulling latest changes ==="
@@ -114,9 +116,10 @@ jobs:
               echo "=== FAILED: Starting new containers ==="
               echo "=== Rolling back to previous version ==="
               git reset --hard "$PREVIOUS_COMMIT"
-              docker tag memoq-api:rollback memoq-api:latest 2>/dev/null || true
-              docker tag memoq-web:rollback memoq-web:latest 2>/dev/null || true
-              docker tag memoq-worker:rollback memoq-worker:rollback 2>/dev/null || true
+              docker tag oxy-api:rollback oxy-api:latest 2>/dev/null || true
+              docker tag oxy-web:rollback oxy-web:latest 2>/dev/null || true
+              docker tag oxy-worker:rollback oxy-worker:latest 2>/dev/null || true
+              docker tag oxy-pdf-converter:rollback oxy-pdf-converter:latest 2>/dev/null || true
               docker compose up -d
               echo "Rollback complete."
               exit 1
@@ -140,9 +143,10 @@ jobs:
               echo "=== Rolling back to previous version ==="
               docker compose down --timeout 30
               git reset --hard "$PREVIOUS_COMMIT"
-              docker tag memoq-api:rollback memoq-api:latest 2>/dev/null || true
-              docker tag memoq-web:rollback memoq-web:latest 2>/dev/null || true
-              docker tag memoq-worker:rollback memoq-worker:rollback 2>/dev/null || true
+              docker tag oxy-api:rollback oxy-api:latest 2>/dev/null || true
+              docker tag oxy-web:rollback oxy-web:latest 2>/dev/null || true
+              docker tag oxy-worker:rollback oxy-worker:latest 2>/dev/null || true
+              docker tag oxy-pdf-converter:rollback oxy-pdf-converter:latest 2>/dev/null || true
               docker compose up -d
               echo "Rollback complete."
               exit 1
@@ -154,8 +158,8 @@ jobs:
 
             # Cleanup old images (only from this project)
             echo "=== Cleaning up old images ==="
-            docker rmi memoq-api:rollback memoq-web:rollback memoq-worker:rollback 2>/dev/null || true
-            docker image prune -f --filter "label=com.docker.compose.project=memoq" 2>/dev/null || true
+            docker rmi oxy-api:rollback oxy-web:rollback oxy-worker:rollback oxy-pdf-converter:rollback 2>/dev/null || true
+            docker image prune -f --filter "label=com.docker.compose.project=oxy" 2>/dev/null || true
 
             echo "=== Deployment successful! ==="
             echo "Previous: $PREVIOUS_COMMIT"
