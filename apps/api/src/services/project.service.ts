@@ -29,6 +29,7 @@ export interface CreateProjectInput {
   sourceLanguage: string;
   targetLanguage: string;
   workflowType?: WorkflowType;
+  deadline?: string | null;
   createdBy: string;
 }
 
@@ -42,6 +43,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       sourceLanguage: input.sourceLanguage,
       targetLanguage: input.targetLanguage,
       workflowType: input.workflowType ?? 'single_review',
+      deadline: input.deadline ? new Date(input.deadline) : null,
       createdBy: input.createdBy,
     })
     .returning();
@@ -787,13 +789,66 @@ export async function getProjectStats(projectId: string) {
   };
 }
 
+/**
+ * Count words in a text string
+ */
+export function countWords(text: string): number {
+  if (!text || !text.trim()) return 0;
+  return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+}
+
+/**
+ * Calculate word counts for a document's segments
+ */
+export async function calculateDocumentWordCounts(documentId: string): Promise<{
+  sourceWordCount: number;
+  targetWordCount: number;
+}> {
+  const segs = await listDocumentSegments(documentId);
+
+  let sourceWordCount = 0;
+  let targetWordCount = 0;
+
+  for (const seg of segs) {
+    sourceWordCount += countWords(seg.sourceText);
+    if (seg.targetText) {
+      targetWordCount += countWords(seg.targetText);
+    }
+  }
+
+  return { sourceWordCount, targetWordCount };
+}
+
+/**
+ * Update document word counts in database
+ */
+export async function updateDocumentWordCounts(documentId: string): Promise<void> {
+  const { sourceWordCount, targetWordCount } = await calculateDocumentWordCounts(documentId);
+
+  await db
+    .update(documents)
+    .set({
+      sourceWordCount,
+      targetWordCount,
+      updatedAt: new Date(),
+    })
+    .where(eq(documents.id, documentId));
+}
+
 export async function getDocumentStats(documentId: string) {
   const segs = await listDocumentSegments(documentId);
 
   const byStatus: Record<string, number> = {};
+  let sourceWordCount = 0;
+  let targetWordCount = 0;
+
   for (const seg of segs) {
     const status = seg.status ?? 'untranslated';
     byStatus[status] = (byStatus[status] ?? 0) + 1;
+    sourceWordCount += countWords(seg.sourceText);
+    if (seg.targetText) {
+      targetWordCount += countWords(seg.targetText);
+    }
   }
 
   const translatedCount = segs.filter(
@@ -810,6 +865,8 @@ export async function getDocumentStats(documentId: string) {
     totalSegments: segs.length,
     byStatus,
     progress,
+    sourceWordCount,
+    targetWordCount,
   };
 }
 

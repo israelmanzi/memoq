@@ -22,6 +22,7 @@ export interface CreateProjectInput {
   sourceLanguage: string;
   targetLanguage: string;
   workflowType?: WorkflowType;
+  deadline?: string;
 }
 
 export interface ProjectWithCreator extends Project {
@@ -41,11 +42,14 @@ export interface DocumentWithCreator extends Document {
   createdByName: string | null;
 }
 
-export interface DocumentWithStats extends Document {
+export interface DocumentWithStats extends Omit<Document, 'sourceWordCount' | 'targetWordCount'> {
   totalSegments: number;
   byStatus: Record<string, number>;
   progress: number;
   createdByName?: string | null;
+  // Word counts (may come from either document table or calculated from segments)
+  sourceWordCount?: number;
+  targetWordCount?: number;
   // Assignment info (included in list view)
   assignments?: DocumentAssignmentInfo;
   isAssignedToMe?: boolean;

@@ -28,6 +28,7 @@ const createProjectSchema = z.object({
   sourceLanguage: z.string().min(2).max(10),
   targetLanguage: z.string().min(2).max(10),
   workflowType: z.enum(WORKFLOW_TYPES).optional(),
+  deadline: z.string().datetime().optional().nullable(),
 });
 
 const updateProjectSchema = z.object({
@@ -35,6 +36,7 @@ const updateProjectSchema = z.object({
   description: z.string().max(1000).optional(),
   status: z.enum(PROJECT_STATUSES).optional(),
   workflowType: z.enum(WORKFLOW_TYPES).optional(),
+  deadline: z.string().datetime().optional().nullable(),
 });
 
 const addMemberSchema = z.object({

@@ -217,10 +217,18 @@ function CreateProjectModal({
   const [sourceLanguage, setSourceLanguage] = useState('en');
   const [targetLanguage, setTargetLanguage] = useState('');
   const [workflowType, setWorkflowType] = useState<'simple' | 'single_review' | 'full_review'>('single_review');
+  const [deadline, setDeadline] = useState('');
 
   const createMutation = useMutation({
     mutationFn: () =>
-      projectsApi.create(orgId, { name, description, sourceLanguage, targetLanguage, workflowType }),
+      projectsApi.create(orgId, {
+        name,
+        description,
+        sourceLanguage,
+        targetLanguage,
+        workflowType,
+        deadline: deadline ? new Date(deadline).toISOString() : undefined,
+      }),
     onSuccess,
   });
 
@@ -314,6 +322,22 @@ function CreateProjectModal({
               {workflowType === 'simple' && 'Translator confirms segments directly without review.'}
               {workflowType === 'single_review' && 'Translator submits, then one reviewer approves.'}
               {workflowType === 'full_review' && 'Translator submits, then two reviewers approve in sequence.'}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1">
+              Deadline
+            </label>
+            <input
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-xs bg-surface border border-border text-text focus:border-accent focus:outline-none"
+              title="Optional project deadline"
+            />
+            <p className="mt-1 text-2xs text-text-muted">
+              Optional deadline for the project
             </p>
           </div>
 

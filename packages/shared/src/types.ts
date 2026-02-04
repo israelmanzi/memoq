@@ -100,6 +100,7 @@ export interface Project {
   targetLanguage: string;
   workflowType: WorkflowType;
   status: ProjectStatus;
+  deadline: Date | null;
   createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -117,6 +118,11 @@ export interface Document {
   pageCount: number | null;
   isBinaryFormat: boolean;
   workflowStatus: WorkflowStatus;
+  // Word counts
+  sourceWordCount: number;
+  targetWordCount: number;
+  // Deadline
+  deadline: Date | null;
   createdBy: string | null;
   updatedBy: string | null;
   createdAt: Date;
