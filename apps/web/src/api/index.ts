@@ -6,3 +6,6 @@ export { tmApi, type TMDeleteInfo, type TMXUploadResult } from './tm';
 export { tbApi, type TBDeleteInfo, type TBXUploadResult } from './tb';
 export { activityApi } from './activity';
 export { searchApi, type SearchResults, type SegmentSearchResult, type TMUnitSearchResult, type TermSearchResult, type SearchType } from './search';
+export { mtApi, type MTStatus, type MTTranslateResult, type MTBatchResult } from './mt';
+export { qaApi, type QADocumentResult, type QACheckResult, type QAIssue, type QASeverity, type QACheckType, getQACheckTypeLabel, getQASeverityColor, getQASeverityBgColor } from './qa';
+export { commentsApi, type Comment, type CommentCounts } from './comments';

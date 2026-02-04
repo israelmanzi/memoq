@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useNavigate } from '@tanstack/react-router';
-import { projectsApi, tbApi, tmApi, activityApi, type SegmentWithMatchInfo } from '../api';
+import { projectsApi, tbApi, tmApi, activityApi, mtApi, commentsApi, type SegmentWithMatchInfo } from '../api';
 import type { SegmentStatus, TermMatch } from '@oxy/shared';
 import { HighlightedText } from '../components/HighlightedText';
 import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
@@ -9,6 +9,9 @@ import { ActivityFeed } from '../components/ActivityFeed';
 import { PdfViewer } from '../components/PdfViewer';
 import { TranslationEditor, getEditorRef } from '../components/TranslationEditor';
 import { DocumentAssignmentsModal } from '../components/DocumentAssignmentsModal';
+import { QAPanel } from '../components/QAPanel';
+import { CommentsPanel } from '../components/CommentsPanel';
+import { FindReplaceModal } from '../components/FindReplaceModal';
 import { formatWorkflowStatus, formatSegmentStatus } from '../utils/formatters';
 import { useOrgStore } from '../stores/org';
 
@@ -89,12 +92,22 @@ export function DocumentPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [concordanceQuery, setConcordanceQuery] = useState('');
   const [concordanceSearchIn, setConcordanceSearchIn] = useState<'source' | 'target' | 'both'>('both');
+  const [showFindReplace, setShowFindReplace] = useState(false);
 
-  // Global Escape key handler for modals and menus
+  // Global keyboard shortcut handler
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+H for Find & Replace
+      if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+        e.preventDefault();
+        setShowFindReplace(true);
+        return;
+      }
+      // Escape for closing modals
       if (e.key === 'Escape') {
-        if (showExportMenu) {
+        if (showFindReplace) {
+          setShowFindReplace(false);
+        } else if (showExportMenu) {
           setShowExportMenu(false);
         } else if (showDeleteModal) {
           setShowDeleteModal(false);
@@ -103,9 +116,9 @@ export function DocumentPage() {
         }
       }
     };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [showExportMenu, showDeleteModal, selectedSegmentId]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showExportMenu, showDeleteModal, selectedSegmentId, showFindReplace]);
 
   const { data: document, isLoading: documentLoading, error: documentError } = useQuery({
     queryKey: ['document', documentId],
@@ -147,6 +160,20 @@ export function DocumentPage() {
   const { data: activityData, isLoading: activityLoading } = useQuery({
     queryKey: ['document-activity', documentId],
     queryFn: () => activityApi.listForDocument(documentId, { limit: 15 }),
+    enabled: !!document,
+  });
+
+  // MT status query
+  const { data: mtStatus } = useQuery({
+    queryKey: ['mt-status'],
+    queryFn: () => mtApi.getStatus(),
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
+  // Comment counts for document
+  const { data: commentCounts } = useQuery({
+    queryKey: ['comment-counts', documentId],
+    queryFn: () => commentsApi.getDocumentCommentCounts(documentId),
     enabled: !!document,
   });
 
@@ -303,18 +330,33 @@ export function DocumentPage() {
           </span>
         </div>
 
-        {/* Center: Progress */}
-        <div
-          className="hidden sm:flex items-center gap-2 cursor-help"
-          title={`${stats.total - stats.untranslated} of ${stats.total} segments translated (${stats.translated} in progress, ${stats.reviewed} reviewed)`}
-        >
-          <div className="flex items-center gap-1 text-2xs text-text-secondary">
-            <span>{stats.total - stats.untranslated}/{stats.total}</span>
+        {/* Center: Progress & Word Counts */}
+        <div className="hidden sm:flex items-center gap-4">
+          {/* Progress */}
+          <div
+            className="flex items-center gap-2 cursor-help"
+            title={`${stats.total - stats.untranslated} of ${stats.total} segments translated (${stats.translated} in progress, ${stats.reviewed} reviewed)`}
+          >
+            <div className="flex items-center gap-1 text-2xs text-text-secondary">
+              <span>{stats.total - stats.untranslated}/{stats.total}</span>
+            </div>
+            <div className="w-24 h-1 bg-border rounded-sm overflow-hidden">
+              <div className="h-full bg-success transition-all" style={{ width: `${document.progress}%` }} />
+            </div>
+            <span className="text-2xs font-medium text-text-secondary">{document.progress}%</span>
           </div>
-          <div className="w-24 h-1 bg-border rounded-sm overflow-hidden">
-            <div className="h-full bg-success transition-all" style={{ width: `${document.progress}%` }} />
-          </div>
-          <span className="text-2xs font-medium text-text-secondary">{document.progress}%</span>
+
+          {/* Word Counts */}
+          {(document.sourceWordCount !== undefined || document.targetWordCount !== undefined) && (
+            <div className="flex items-center gap-2 text-2xs text-text-muted" title="Word counts (source / target)">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>{(document.sourceWordCount ?? 0).toLocaleString()}</span>
+              <span>/</span>
+              <span>{(document.targetWordCount ?? 0).toLocaleString()}</span>
+            </div>
+          )}
         </div>
 
         {/* Right: Actions */}
@@ -350,7 +392,18 @@ export function DocumentPage() {
                   {pdfHasConvertedDocx ? (
                     <button onClick={() => handleExport('docx')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">Word (DOCX)</button>
                   ) : (
-                    <button onClick={() => handleExport('pdf')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">PDF</button>
+                    <button
+                      onClick={() => handleExport('pdf')}
+                      className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover group"
+                      title="PDF export may have layout differences from the original"
+                    >
+                      <span className="flex items-center gap-1">
+                        PDF
+                        <svg className="w-3 h-3 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      </span>
+                    </button>
                   )}
                   {isDocx && <button onClick={() => handleExport('docx')} className="w-full px-2 py-1 text-left text-xs text-text hover:bg-surface-hover">Word (DOCX)</button>}
                 </div>
@@ -482,6 +535,20 @@ export function DocumentPage() {
 
           <div className="h-4 w-px bg-border mx-0.5" />
 
+          {/* Find & Replace button */}
+          <button
+            onClick={() => setShowFindReplace(true)}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-text-secondary hover:text-text hover:bg-surface-hover focus:outline-none focus:ring-1 focus:ring-accent"
+            title="Find & Replace (Ctrl+H)"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <span className="hidden sm:inline">Find</span>
+          </button>
+
+          <div className="h-4 w-px bg-border mx-0.5" />
+
           <button
             onClick={() => setShowSidePanel(!showSidePanel)}
             className={`p-1 focus:outline-none focus:ring-1 focus:ring-accent lg:hidden ${
@@ -543,6 +610,9 @@ export function DocumentPage() {
                   writableTBName={writableTB?.name ?? null}
                   onConfirmComplete={goToNextSegment}
                   canEdit={document.canEdit !== false}
+                  mtEnabled={mtStatus?.enabled ?? false}
+                  commentCount={commentCounts?.counts?.[segment.id]?.count ?? 0}
+                  hasUnresolvedComment={commentCounts?.counts?.[segment.id]?.hasUnresolved ?? false}
                 />
               ))
             )}
@@ -713,6 +783,19 @@ export function DocumentPage() {
                     )}
                   </div>
                 </div>
+
+                {/* Comments Panel */}
+                <CommentsPanel
+                  segmentId={selectedSegmentId}
+                  documentId={documentId}
+                />
+
+                {/* QA Panel */}
+                <QAPanel
+                  documentId={documentId}
+                  segmentId={selectedSegmentId}
+                  onSegmentClick={setSelectedSegmentId}
+                />
               </>
             ) : (
               <div className="p-3 bg-surface-alt">
@@ -783,6 +866,15 @@ export function DocumentPage() {
           }}
         />
       )}
+
+      {/* Find & Replace Modal */}
+      <FindReplaceModal
+        isOpen={showFindReplace}
+        onClose={() => setShowFindReplace(false)}
+        documentId={documentId}
+        segments={allSegments}
+        onSegmentClick={setSelectedSegmentId}
+      />
     </div>
   );
 }
@@ -804,6 +896,9 @@ function SegmentRow({
   writableTBName,
   onConfirmComplete,
   canEdit = true,
+  mtEnabled = false,
+  commentCount = 0,
+  hasUnresolvedComment = false,
 }: {
   segment: SegmentWithMatchInfo;
   index: number;
@@ -821,6 +916,9 @@ function SegmentRow({
   writableTBName: string | null;
   onConfirmComplete?: () => void;
   canEdit?: boolean;
+  mtEnabled?: boolean;
+  commentCount?: number;
+  hasUnresolvedComment?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [targetText, setTargetText] = useState(segment.targetText ?? '');
@@ -869,6 +967,21 @@ function SegmentRow({
   }, [pendingInsert]);
 
   const [lastPropagation, setLastPropagation] = useState<{ count: number } | null>(null);
+  const [isMTTranslating, setIsMTTranslating] = useState(false);
+
+  // MT Translation mutation
+  const mtTranslateMutation = useMutation({
+    mutationFn: () => mtApi.translateSegment(segment.id),
+    onMutate: () => setIsMTTranslating(true),
+    onSuccess: (result) => {
+      setTargetText(result.translatedText);
+      setIsEditing(true);
+      setIsMTTranslating(false);
+    },
+    onError: () => {
+      setIsMTTranslating(false);
+    },
+  });
 
   const updateMutation = useMutation({
     mutationFn: (data: { targetText: string; status?: SegmentStatus; confirm?: boolean; propagate?: boolean }) =>
@@ -1027,7 +1140,20 @@ function SegmentRow({
       <div className={`flex flex-col items-center justify-center py-2 gap-0.5 ${
         isSelected ? `border-l-2 ${statusConfig.border}` : ''
       }`}>
-        <span className="text-xs font-medium text-text-muted">{index + 1}</span>
+        <div className="flex items-center gap-0.5">
+          <span className="text-xs font-medium text-text-muted">{index + 1}</span>
+          {/* Comment indicator */}
+          {commentCount > 0 && (
+            <span
+              className={`flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium rounded-full ${
+                hasUnresolvedComment ? 'bg-warning text-white' : 'bg-surface-panel text-text-muted'
+              }`}
+              title={`${commentCount} comment${commentCount > 1 ? 's' : ''}${hasUnresolvedComment ? ' (unresolved)' : ''}`}
+            >
+              {commentCount > 9 ? '9+' : commentCount}
+            </span>
+          )}
+        </div>
         {segment.bestMatchPercent !== null && segment.bestMatchPercent !== undefined && (
           <MatchBadge percent={segment.bestMatchPercent} isContext={segment.hasContextMatch} />
         )}
@@ -1174,6 +1300,28 @@ function SegmentRow({
               >
                 Copy Source
               </button>
+
+              {/* MT Translate button */}
+              {mtEnabled && (
+                <button
+                  onClick={() => mtTranslateMutation.mutate()}
+                  disabled={isMTTranslating || updateMutation.isPending}
+                  className="px-2 py-1 text-xs text-accent hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-accent"
+                  title="Machine translate this segment using DeepL"
+                >
+                  {isMTTranslating ? (
+                    <span className="flex items-center gap-1">
+                      <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      MT...
+                    </span>
+                  ) : (
+                    'MT'
+                  )}
+                </button>
+              )}
 
               {writableTBId && (
                 <button
