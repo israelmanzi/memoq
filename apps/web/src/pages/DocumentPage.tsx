@@ -12,6 +12,8 @@ import { DocumentAssignmentsModal } from '../components/DocumentAssignmentsModal
 import { QAPanel } from '../components/QAPanel';
 import { CommentsPanel } from '../components/CommentsPanel';
 import { FindReplaceModal } from '../components/FindReplaceModal';
+import { DocumentAnalyticsBadge } from '../components/DocumentAnalyticsBadge';
+import { LeverageReport } from '../components/LeverageReport';
 import { formatWorkflowStatus, formatSegmentStatus } from '../utils/formatters';
 import { useOrgStore } from '../stores/org';
 
@@ -360,7 +362,19 @@ export function DocumentPage() {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center">
+        <div className="flex items-center gap-2">
+          {/* Analytics Badge */}
+          <DocumentAnalyticsBadge documentId={documentId} />
+
+          {/* Leverage Report */}
+          <LeverageReport
+            documentId={documentId}
+            projectId={document.projectId}
+            documentName={document.name}
+          />
+
+          <div className="h-4 w-px bg-border" />
+
           {/* Export dropdown */}
           <div className="relative">
             <button

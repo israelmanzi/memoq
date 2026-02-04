@@ -9,3 +9,4 @@ export { searchApi, type SearchResults, type SegmentSearchResult, type TMUnitSea
 export { mtApi, type MTStatus, type MTTranslateResult, type MTBatchResult } from './mt';
 export { qaApi, type QADocumentResult, type QACheckResult, type QAIssue, type QASeverity, type QACheckType, getQACheckTypeLabel, getQASeverityColor, getQASeverityBgColor } from './qa';
 export { commentsApi, type Comment, type CommentCounts } from './comments';
+export { analyticsApi, type LeverageAnalysis, type ProjectStatistics, type UserProductivity, type DocumentAnalytics, type ProjectTimelineEntry, type MatchDistribution, type Contributor } from './analytics';

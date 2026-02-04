@@ -8,6 +8,8 @@ import { useMultiUpload } from '../hooks/useMultiUpload';
 import { Pagination } from '../components/Pagination';
 import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
 import { ActivityFeed } from '../components/ActivityFeed';
+import { ProjectStatsDashboard } from '../components/ProjectStatsDashboard';
+import { ProductivityMetrics } from '../components/ProductivityMetrics';
 import { formatProjectStatus, formatWorkflowType, formatWorkflowStatus, formatRelativeTime, formatAbsoluteDateTime } from '../utils/formatters';
 import type { ProjectStatus, WorkflowType, DocumentAssignmentFilter, DocumentRole, DocumentAssignmentInfo } from '@oxy/shared';
 
@@ -143,7 +145,7 @@ export function ProjectDetailPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { currentOrg } = useOrgStore();
-  const [activeTab, setActiveTab] = useState<'documents' | 'resources' | 'activity' | 'settings'>('documents');
+  const [activeTab, setActiveTab] = useState<'documents' | 'resources' | 'activity' | 'analytics' | 'settings'>('documents');
   const [showAddDocModal, setShowAddDocModal] = useState(false);
   const [showAddResourceModal, setShowAddResourceModal] = useState(false);
   const [docsOffset, setDocsOffset] = useState(0);
@@ -326,6 +328,7 @@ export function ProjectDetailPage() {
             { key: 'documents', label: 'Documents', tooltip: 'View and manage project documents' },
             { key: 'resources', label: 'Resources', tooltip: 'Attached Translation Memories and Term Bases' },
             { key: 'activity', label: 'Activity', tooltip: 'Recent actions and changes' },
+            { key: 'analytics', label: 'Analytics', tooltip: 'Project statistics and productivity metrics' },
             { key: 'settings', label: 'Settings', tooltip: 'Project configuration and danger zone' },
           ].map((tab) => (
             <button
@@ -601,6 +604,18 @@ export function ProjectDetailPage() {
               isLoading={activityLoading}
               showEntityName={true}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Analytics Tab */}
+      {activeTab === 'analytics' && (
+        <div className="space-y-6">
+          <div className="bg-surface-alt border border-border p-6">
+            <ProjectStatsDashboard projectId={projectId} />
+          </div>
+          <div className="bg-surface-alt border border-border p-6">
+            <ProductivityMetrics projectId={projectId} />
           </div>
         </div>
       )}
