@@ -5,8 +5,7 @@ import { logger } from '../config/logger.js';
 // Job type definitions
 export type JobType =
   | 'pre-translate'
-  | 'parse-document'
-  | 'export-pdf';
+  | 'parse-document';
 
 export interface PreTranslateJobData {
   documentId: string;
@@ -24,16 +23,7 @@ export interface ParseDocumentJobData {
   userId: string;
 }
 
-export interface ExportPdfJobData {
-  documentId: string;
-  userId: string;
-  options?: {
-    includeSource?: boolean;
-    includeStatus?: boolean;
-  };
-}
-
-export type JobData = PreTranslateJobData | ParseDocumentJobData | ExportPdfJobData;
+export type JobData = PreTranslateJobData | ParseDocumentJobData;
 
 export interface JobProgress {
   percent: number;

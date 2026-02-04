@@ -4,7 +4,6 @@ import { createRedisConnection, isRedisEnabled } from './services/redis.service.
 import { QUEUE_NAME, type JobData, type JobResult } from './services/queue.service.js';
 import { handlePreTranslate } from './workers/handlers/pre-translate.handler.js';
 import { handleParseDocument } from './workers/handlers/parse-document.handler.js';
-import { handleExportPdf } from './workers/handlers/export-pdf.handler.js';
 import { logger } from './config/logger.js';
 
 // Force IPv4 first - Docker DNS can return IPv6 which may not route correctly
@@ -20,8 +19,6 @@ async function processJob(job: Job<JobData>): Promise<JobResult> {
       return handlePreTranslate(job as any);
     case 'parse-document':
       return handleParseDocument(job as any);
-    case 'export-pdf':
-      return handleExportPdf(job as any);
     default:
       logger.warn({ jobId: job.id, type: job.name }, 'Unknown job type');
       return {

@@ -1,4 +1,4 @@
-"""PDF/DOCX conversion utilities using LibreOffice."""
+"""PDF/DOCX conversion utilities using LibreOffice and python-docx."""
 
 import tempfile
 import subprocess
@@ -8,6 +8,10 @@ import glob
 import zipfile
 import io
 from xml.etree import ElementTree as ET
+from typing import Dict
+
+import re
+import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
@@ -298,3 +302,303 @@ def docx_to_pdf(docx_bytes: bytes) -> bytes:
             result_bytes = f.read()
             logger.info(f"Conversion complete, PDF size: {len(result_bytes)} bytes")
             return result_bytes
+
+
+def escape_xml(text: str) -> str:
+    """Escape special XML characters."""
+    return (text
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+        .replace('"', '&quot;')
+        .replace("'", '&apos;'))
+
+
+def unescape_xml(text: str) -> str:
+    """Unescape XML entities."""
+    return (text
+        .replace('&apos;', "'")
+        .replace('&quot;', '"')
+        .replace('&gt;', '>')
+        .replace('&lt;', '<')
+        .replace('&amp;', '&'))
+
+
+def replace_text_in_docx(docx_bytes: bytes, replacements: Dict[str, str]) -> bytes:
+    """Replace text in a DOCX file using raw XML manipulation.
+
+    This approach:
+    1. Opens the DOCX as a ZIP file
+    2. Reads document.xml as raw text
+    3. Does surgical string replacement on <w:t> elements
+    4. Writes back to ZIP without modifying anything else
+
+    This preserves all formatting, layout, and structure because we never
+    parse or rebuild the XML - just do targeted string replacements.
+
+    Args:
+        docx_bytes: Raw DOCX file bytes
+        replacements: Dict mapping source text to target text
+
+    Returns:
+        Modified DOCX file bytes
+    """
+    if not replacements:
+        logger.info("No replacements provided, returning original document")
+        return docx_bytes
+
+    logger.info(f"Applying {len(replacements)} text replacements to DOCX (raw XML)")
+
+    # Open the DOCX as a ZIP file
+    docx_zip = zipfile.ZipFile(io.BytesIO(docx_bytes), 'r')
+
+    # Read document.xml
+    try:
+        document_xml = docx_zip.read('word/document.xml').decode('utf-8')
+    except KeyError:
+        logger.warning("No word/document.xml found, returning original")
+        docx_zip.close()
+        return docx_bytes
+
+    original_xml = document_xml
+    total_replacements = 0
+
+    # For each replacement, find and replace in <w:t> elements
+    for old_text, new_text in replacements.items():
+        if not old_text or old_text == new_text:
+            continue
+
+        # Escape for XML
+        old_escaped = escape_xml(old_text)
+        new_escaped = escape_xml(new_text)
+
+        # Strategy 1: Direct replacement if text is in a single <w:t> element
+        # Pattern: <w:t>...old_text...</w:t> or <w:t xml:space="preserve">...old_text...</w:t>
+        # We need to be careful to only replace the text content, not the tags
+
+        # Find all <w:t> elements and their contents
+        # Pattern matches: <w:t>content</w:t> or <w:t xml:space="preserve">content</w:t>
+        pattern = r'(<w:t(?:\s[^>]*)?>)([^<]*(?:' + re.escape(old_escaped) + r')[^<]*)(</w:t>)'
+
+        def replace_in_element(match):
+            nonlocal total_replacements
+            open_tag = match.group(1)
+            content = match.group(2)
+            close_tag = match.group(3)
+
+            if old_escaped in content:
+                new_content = content.replace(old_escaped, new_escaped, 1)  # Replace first occurrence
+                total_replacements += 1
+                return open_tag + new_content + close_tag
+            return match.group(0)
+
+        # Apply replacement
+        new_xml = re.sub(pattern, replace_in_element, document_xml)
+
+        if new_xml != document_xml:
+            document_xml = new_xml
+            logger.debug(f"Replaced '{old_text}' with '{new_text}'")
+
+    if total_replacements == 0:
+        logger.info("No text matches found for replacement")
+        docx_zip.close()
+        return docx_bytes
+
+    logger.info(f"Made {total_replacements} text replacements")
+
+    # Rebuild the DOCX with modified document.xml
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as out_zip:
+        for item in docx_zip.namelist():
+            if item == 'word/document.xml':
+                # Write modified document.xml
+                out_zip.writestr(item, document_xml.encode('utf-8'))
+            else:
+                # Copy other files unchanged
+                out_zip.writestr(item, docx_zip.read(item))
+
+    docx_zip.close()
+
+    result = output.getvalue()
+    logger.info(f"Text replacement complete, output size: {len(result)} bytes")
+
+    return result
+
+
+def map_to_base14_font(font_name: str, flags: int = 0) -> str:
+    """Map a PDF font name to a Base-14 font that PyMuPDF can use.
+
+    Base-14 fonts: helv, heit, hebo, hebi, tiro, tiit, tibo, tibi, cour, coit, cobo, cobi, symb, zadb
+
+    Args:
+        font_name: Original font name from PDF (e.g., "AAAAAA+TimesNewRoman-Bold")
+        flags: Font flags from span (bit 0=superscript, 1=italic, 2=serif, 3=monospace, 4=bold)
+
+    Returns:
+        Base-14 font name
+    """
+    font_lower = font_name.lower()
+
+    # Detect font family
+    is_times = any(x in font_lower for x in ['times', 'tiro', 'serif', 'roman', 'georgia', 'palatino', 'cambria'])
+    is_courier = any(x in font_lower for x in ['courier', 'cour', 'mono', 'consola', 'menlo', 'fixed'])
+    is_symbol = any(x in font_lower for x in ['symbol', 'symb'])
+    is_zapf = any(x in font_lower for x in ['zapf', 'dingbat', 'zadb'])
+
+    # Detect style from font name or flags
+    is_bold = 'bold' in font_lower or 'black' in font_lower or 'heavy' in font_lower or (flags & 16)
+    is_italic = 'italic' in font_lower or 'oblique' in font_lower or (flags & 2)
+
+    # Map to Base-14 font
+    if is_symbol:
+        return "symb"
+    elif is_zapf:
+        return "zadb"
+    elif is_courier:
+        if is_bold and is_italic:
+            return "cobi"
+        elif is_bold:
+            return "cobo"
+        elif is_italic:
+            return "coit"
+        else:
+            return "cour"
+    elif is_times:
+        if is_bold and is_italic:
+            return "tibi"
+        elif is_bold:
+            return "tibo"
+        elif is_italic:
+            return "tiit"
+        else:
+            return "tiro"
+    else:
+        # Default to Helvetica
+        if is_bold and is_italic:
+            return "hebi"
+        elif is_bold:
+            return "hebo"
+        elif is_italic:
+            return "heit"
+        else:
+            return "helv"
+
+
+def replace_text_in_pdf(pdf_bytes: bytes, replacements: Dict[str, str]) -> bytes:
+    """Replace text in a PDF file using PyMuPDF.
+
+    Strategy:
+    1. For each replacement, search for the text in the PDF
+    2. Get the exact position, font, size, and color of the original text
+    3. Redact (white out) the original text
+    4. Insert the new text at the same position with same styling
+
+    This preserves the original PDF layout and formatting.
+
+    Args:
+        pdf_bytes: Raw PDF file bytes
+        replacements: Dict mapping source text to target text
+
+    Returns:
+        Modified PDF file bytes
+    """
+    if not replacements:
+        logger.info("No replacements provided, returning original PDF")
+        return pdf_bytes
+
+    logger.info(f"Applying {len(replacements)} text replacements to PDF (PyMuPDF)")
+
+    # Open PDF from bytes
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    total_replacements = 0
+
+    for old_text, new_text in replacements.items():
+        if not old_text or old_text == new_text:
+            continue
+
+        # Search for text across all pages
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+
+            # Find all instances of the text
+            text_instances = page.search_for(old_text)
+
+            for inst in text_instances:
+                # inst is a Rect (rectangle) where the text was found
+
+                # Get text properties at this location
+                blocks = page.get_text("dict", clip=inst)["blocks"]
+
+                # Default styling (fallback)
+                base14_font = "helv"  # Helvetica
+                font_size = 11
+                text_color = (0, 0, 0)  # Black
+
+                # Try to extract original styling from any span in the area
+                for block in blocks:
+                    if "lines" in block:
+                        for line in block["lines"]:
+                            for span in line["spans"]:
+                                # Get font info from any span in the search area
+                                orig_font = span.get("font", "")
+                                flags = span.get("flags", 0)
+                                base14_font = map_to_base14_font(orig_font, flags)
+                                font_size = span.get("size", 11)
+
+                                # Color handling
+                                color = span.get("color", 0)
+                                if isinstance(color, int):
+                                    # Convert int color to RGB tuple (0-1 range)
+                                    r = ((color >> 16) & 255) / 255
+                                    g = ((color >> 8) & 255) / 255
+                                    b = (color & 255) / 255
+                                    text_color = (r, g, b)
+                                elif isinstance(color, (list, tuple)) and len(color) == 3:
+                                    text_color = tuple(color)
+
+                                # Found styling, break out
+                                break
+                            else:
+                                continue
+                            break
+                    else:
+                        continue
+                    break
+
+                logger.debug(f"Replacing '{old_text}' with '{new_text}' using font={base14_font}, size={font_size}")
+
+                # Step 1: Add redaction annotation to remove old text
+                page.add_redact_annot(inst, fill=(1, 1, 1))  # White fill
+
+                # Apply redactions (actually removes the text)
+                page.apply_redactions()
+
+                # Step 2: Insert new text at the same position
+                # Use the bottom-left of the rect as baseline reference
+                # PyMuPDF insert_text uses bottom-left as the reference point
+                insert_point = fitz.Point(inst.x0, inst.y1 - 2)
+
+                page.insert_text(
+                    insert_point,
+                    new_text,
+                    fontname=base14_font,
+                    fontsize=font_size,
+                    color=text_color,
+                )
+
+                total_replacements += 1
+                logger.debug(f"Replaced '{old_text}' on page {page_num + 1}")
+
+    if total_replacements == 0:
+        logger.info("No text matches found in PDF")
+        doc.close()
+        return pdf_bytes
+
+    logger.info(f"Made {total_replacements} text replacements in PDF")
+
+    # Save to bytes
+    output = doc.tobytes(garbage=4, deflate=True)
+    doc.close()
+
+    logger.info(f"PDF text replacement complete, output size: {len(output)} bytes")
+    return output

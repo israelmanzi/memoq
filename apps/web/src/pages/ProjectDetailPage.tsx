@@ -700,7 +700,6 @@ function AddDocumentModal({
     startUpload,
     cancelUpload,
     isUploading,
-    overallProgress,
     currentStage,
     summary,
     validationError,
@@ -902,19 +901,10 @@ function AddDocumentModal({
             </div>
           )}
 
-          {/* Overall progress */}
+          {/* Upload status */}
           {isUploading && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-text-secondary">{currentStage}</span>
-                <span className="text-text-muted">{overallProgress}%</span>
-              </div>
-              <div className="h-2 bg-border rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent transition-all duration-300"
-                  style={{ width: `${overallProgress}%` }}
-                />
-              </div>
+            <div className="text-xs text-text-secondary">
+              {currentStage}
             </div>
           )}
 

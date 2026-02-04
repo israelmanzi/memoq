@@ -40,10 +40,9 @@ import { findMatches, addTranslationUnit, concordanceSearch } from '../services/
 import { findTermsInText } from '../services/tb.service.js';
 import { listProjectResources } from '../services/project.service.js';
 import { parseFile, detectFileType, getSupportedExtensions, isBinaryFileType } from '../services/file-parser.service.js';
-import { exportDocument, exportToDocxInPlace, getSupportedExportFormats, getExportFormatsForFileType, type ExportFormat } from '../services/file-exporter.service.js';
+import { exportDocument, exportToDocxInPlace, exportToPdfInPlace, getSupportedExportFormats, getExportFormatsForFileType, type ExportFormat } from '../services/file-exporter.service.js';
 import { isV2Metadata, type DocxStructureMetadataV2 } from '../services/docx-parser.service.js';
-import { isPdfV2Metadata, type PdfStructureMetadataV2 } from '../services/pdf-parser.service.js';
-import { exportToPdf, exportToPdfInPlace } from '../services/pdf-exporter.service.js';
+import { isConversionEnabled } from '../services/conversion.service.js';
 import { uploadFile, getFile, generateStorageKey, getMimeType } from '../services/storage.service.js';
 import { logActivity } from '../services/activity.service.js';
 import { db } from '../db/index.js';
@@ -583,11 +582,15 @@ export async function documentRoutes(app: FastifyInstance) {
       const docxMetadata = doc.structureMetadata as { convertedDocxStorageKey?: string } | null;
       const pdfHasConvertedDocx = doc.fileType === 'pdf' && docxMetadata?.convertedDocxStorageKey;
 
-      // For PDF documents with converted DOCX: offer DOCX export (not PDF back-conversion)
-      // PDF → DOCX → PDF conversion loses too much quality
+      // Determine available export formats
       let allFormats: string[];
       if (pdfHasConvertedDocx) {
-        allFormats = ['txt', 'xliff', 'docx']; // DOCX instead of PDF for quality
+        // PDF with converted DOCX: can export as DOCX or PDF (via LibreOffice)
+        allFormats = ['txt', 'xliff', 'docx'];
+        // Add PDF export if LibreOffice conversion is available
+        if (isConversionEnabled()) {
+          allFormats.push('pdf');
+        }
       } else {
         allFormats = [...availableFormats, 'pdf'];
       }
@@ -620,15 +623,9 @@ export async function documentRoutes(app: FastifyInstance) {
 
       let result: { content: string | Buffer; mimeType: string; extension: string };
 
-      // Check if PDF has a converted DOCX (from PDF conversion service)
-      const metadata = doc.structureMetadata as { convertedDocxStorageKey?: string; version?: number } | null;
-      const hasConvertedDocx = doc.fileType === 'pdf' && metadata?.convertedDocxStorageKey && metadata?.version === 2;
-
-      // For PDF documents with converted DOCX, DOCX export is handled below
-      // We don't convert back to PDF as it loses too much quality
-
-      if (format === 'pdf' && doc.fileType === 'pdf' && doc.fileStorageKey && isPdfV2Metadata(doc.structureMetadata) && !hasConvertedDocx) {
-        // Legacy: Use in-place replacement for PDF with v2 metadata (overlay approach)
+      if (format === 'pdf' && doc.fileType === 'pdf' && doc.fileStorageKey && isConversionEnabled()) {
+        // PDF export: Use PyMuPDF to replace text directly in the original PDF
+        // This preserves the original layout and formatting perfectly
         try {
           const originalPdfBuffer = await getFile(doc.fileStorageKey);
           result = await exportToPdfInPlace({
@@ -637,50 +634,16 @@ export async function documentRoutes(app: FastifyInstance) {
               sourceText: seg.sourceText,
               targetText: seg.targetText,
             })),
-            structureMetadata: doc.structureMetadata as PdfStructureMetadataV2,
-          });
-        } catch (inPlaceError) {
-          // Fall back to standard PDF export if in-place fails
-          request.log.warn({ error: inPlaceError }, 'In-place PDF export failed, falling back to standard export');
-          result = await exportToPdf({
-            segments: segments.map((seg) => ({
-              sourceText: seg.sourceText,
-              targetText: seg.targetText,
-            })),
             filename: doc.name,
-            sourceLanguage: project.sourceLanguage,
-            targetLanguage: project.targetLanguage,
           });
+          request.log.info({ documentId }, 'Exported PDF with PyMuPDF text replacement');
+        } catch (pdfError) {
+          request.log.warn({ error: pdfError }, 'PyMuPDF PDF export failed');
+          return reply.status(500).send({ error: 'Failed to export PDF document' });
         }
       } else if (format === 'pdf') {
-        // Use standard PDF exporter (non-PDF source or no v2 metadata)
-        result = await exportToPdf({
-          segments: segments.map((seg) => ({
-            sourceText: seg.sourceText,
-            targetText: seg.targetText,
-          })),
-          filename: doc.name,
-          sourceLanguage: project.sourceLanguage,
-          targetLanguage: project.targetLanguage,
-        });
-      } else if (format === 'docx' && hasConvertedDocx) {
-        // DOCX export for PDF with converted DOCX
-        try {
-          const convertedDocxBuffer = await getFile(metadata.convertedDocxStorageKey!);
-          result = await exportToDocxInPlace({
-            originalDocxBuffer: convertedDocxBuffer,
-            segments: segments.map((seg) => ({
-              sourceText: seg.sourceText,
-              targetText: seg.targetText,
-              status: seg.status ?? undefined,
-            })),
-            structureMetadata: doc.structureMetadata as DocxStructureMetadataV2,
-          });
-          request.log.info({ documentId }, 'Exported PDF as DOCX using converted DOCX');
-        } catch (docxError) {
-          request.log.warn({ error: docxError }, 'DOCX export from converted PDF failed');
-          return reply.status(500).send({ error: 'Failed to export document' });
-        }
+        // PDF export for non-PDF source documents - not supported yet
+        return reply.status(400).send({ error: 'PDF export is only supported for PDF source documents' });
       } else if (format === 'docx' && doc.fileType === 'docx' && doc.fileStorageKey && isV2Metadata(doc.structureMetadata)) {
         // Use in-place replacement for DOCX with v2 metadata (preserves all formatting)
         try {

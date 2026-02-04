@@ -2,6 +2,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { parseDocx, type DocxStructureMetadata, type DocxStructureMetadataV2 } from './docx-parser.service.js';
 import { parsePdf, type PdfStructureMetadata } from './pdf-parser.service.js';
 import { isConversionEnabled, convertPdfToDocx } from './conversion.service.js';
+import { isAdobePdfEnabled, extractPdfWithAdobe, type AdobePdfParseResult } from './adobe-pdf.service.js';
 import { logger } from '../config/logger.js';
 
 export interface ParsedSegment {
@@ -20,6 +21,10 @@ export interface ParseResult {
   // For PDFs converted to DOCX, store the converted DOCX buffer
   convertedDocxBuffer?: Buffer;
   convertedDocxMetadata?: DocxStructureMetadataV2;
+  // For Adobe PDF extraction
+  adobeMetadata?: AdobePdfParseResult['metadata'];
+  /** Indicates which extraction method was used */
+  extractionMethod?: 'adobe' | 'libreoffice' | 'unpdf';
 }
 
 /**
@@ -59,10 +64,11 @@ export async function parseFile(
 
     case 'pdf':
     case 'application/pdf': {
-      // If PDF conversion service is enabled, convert PDF to DOCX for better layout preservation
+      // Priority 1: LibreOffice PDF to DOCX conversion (best for round-trip fidelity)
+      // This gives us a DOCX we can modify in-place and export back to PDF
       if (isConversionEnabled()) {
         try {
-          logger.info('Converting PDF to DOCX for better text extraction and layout preservation');
+          logger.info('Converting PDF to DOCX for round-trip fidelity (LibreOffice)');
           const conversionResult = await convertPdfToDocx(buffer, { filename });
 
           // Parse the converted DOCX (which has proper text position tracking)
@@ -76,14 +82,38 @@ export async function parseFile(
             // Store converted DOCX for later export
             convertedDocxBuffer: conversionResult.docxBuffer,
             convertedDocxMetadata: docxResult.structureMetadata,
+            extractionMethod: 'libreoffice',
           };
         } catch (conversionError) {
-          logger.warn({ error: conversionError }, 'PDF to DOCX conversion failed, falling back to direct PDF parsing');
-          // Fall through to direct PDF parsing
+          logger.warn({ error: conversionError }, 'PDF to DOCX conversion failed, trying Adobe');
+          // Fall through to Adobe
         }
       }
 
-      // Fall back to direct PDF parsing (less accurate but no external dependency)
+      // Priority 2: Adobe PDF Extract API (good extraction but no round-trip DOCX)
+      if (isAdobePdfEnabled()) {
+        try {
+          logger.info('Using Adobe PDF Extract API for text extraction');
+          const adobeResult = await extractPdfWithAdobe(buffer);
+
+          return {
+            segments: adobeResult.segments.map(seg => ({
+              sourceText: seg.sourceText,
+            })),
+            pageCount: adobeResult.pageCount,
+            adobeMetadata: adobeResult.metadata,
+            isBinary: true,
+            originalName: filename,
+            extractionMethod: 'adobe',
+          };
+        } catch (adobeError) {
+          logger.warn({ error: adobeError }, 'Adobe PDF extraction failed, falling back to unpdf');
+          // Fall through to unpdf
+        }
+      }
+
+      // Priority 3: Direct PDF parsing with unpdf (least accurate but no external dependency)
+      logger.info('Using direct PDF parsing (unpdf)');
       const pdfResult = await parsePdf(buffer);
       return {
         segments: pdfResult.segments,
@@ -91,6 +121,7 @@ export async function parseFile(
         structureMetadata: pdfResult.structureMetadata,
         isBinary: true,
         originalName: filename,
+        extractionMethod: 'unpdf',
       };
     }
 

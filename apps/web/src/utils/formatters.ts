@@ -62,18 +62,6 @@ export function formatOrgRole(role: string): string {
   return ORG_ROLE_LABELS[role] || formatEnumLabel(role);
 }
 
-// Project Roles
-const PROJECT_ROLE_LABELS: Record<string, string> = {
-  project_manager: 'Project Manager',
-  translator: 'Translator',
-  reviewer_1: 'Reviewer 1',
-  reviewer_2: 'Reviewer 2',
-};
-
-export function formatProjectRole(role: string): string {
-  return PROJECT_ROLE_LABELS[role] || formatEnumLabel(role);
-}
-
 // Document Assignment Roles
 const DOCUMENT_ROLE_LABELS: Record<string, string> = {
   translator: 'Translator',
@@ -150,10 +138,3 @@ export function formatAbsoluteDateTime(date: string | Date): string {
   });
 }
 
-/**
- * Format a date as short date (e.g., "Jan 15")
- */
-export function formatShortDate(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}

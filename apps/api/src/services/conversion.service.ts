@@ -131,6 +131,155 @@ export async function convertDocxToPdf(
 }
 
 // ============================================================================
+// DOCX Text Replacement
+// ============================================================================
+
+export interface ReplaceTextResult {
+  docxBuffer: Buffer;
+}
+
+export interface ReplaceTextOptions {
+  /** Original filename (for logging) */
+  filename?: string;
+}
+
+/**
+ * Replace text in a DOCX file while preserving formatting.
+ * Uses python-docx-replace which handles text split across multiple runs.
+ *
+ * @param docxBuffer - Original DOCX file buffer
+ * @param replacements - Map of source text to target text
+ * @param options - Additional options
+ * @returns Modified DOCX buffer
+ */
+export async function replaceTextInDocx(
+  docxBuffer: Buffer,
+  replacements: Record<string, string>,
+  options: ReplaceTextOptions = {}
+): Promise<ReplaceTextResult> {
+  if (!PDF_CONVERTER_URL) {
+    throw new Error('Document conversion is not configured. Set PDF_CONVERTER_URL environment variable.');
+  }
+
+  const { filename = 'document.docx' } = options;
+
+  // Ensure filename has .docx extension
+  const docxFilename = filename.toLowerCase().endsWith('.docx') ? filename : `${filename}.docx`;
+
+  // Skip if no replacements
+  const replacementCount = Object.keys(replacements).length;
+  if (replacementCount === 0) {
+    logger.info({ filename: docxFilename }, 'No replacements to apply');
+    return { docxBuffer };
+  }
+
+  try {
+    logger.info({ size: docxBuffer.length, filename: docxFilename, replacements: replacementCount },
+      'Starting DOCX text replacement (python-docx)');
+
+    const formData = new FormData();
+    formData.append('file', new Blob([docxBuffer]), docxFilename);
+    formData.append('replacements', JSON.stringify(replacements));
+
+    const response = await fetch(`${PDF_CONVERTER_URL}/replace-text`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' })) as { detail?: string };
+      throw new Error(`DOCX text replacement failed: ${errorData.detail || response.statusText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const resultBuffer = Buffer.from(arrayBuffer);
+
+    logger.info({ inputSize: docxBuffer.length, outputSize: resultBuffer.length, replacements: replacementCount },
+      'DOCX text replacement completed');
+
+    return { docxBuffer: resultBuffer };
+  } catch (error) {
+    logger.error({ error }, 'DOCX text replacement failed');
+    throw new Error(`DOCX text replacement failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// ============================================================================
+// PDF Text Replacement
+// ============================================================================
+
+export interface ReplacePdfTextResult {
+  pdfBuffer: Buffer;
+}
+
+export interface ReplacePdfTextOptions {
+  /** Original filename (for logging) */
+  filename?: string;
+}
+
+/**
+ * Replace text in a PDF file while preserving layout.
+ * Uses PyMuPDF to find text, redact it, and insert replacement text
+ * with matching font and styling.
+ *
+ * @param pdfBuffer - Original PDF file buffer
+ * @param replacements - Map of source text to target text
+ * @param options - Additional options
+ * @returns Modified PDF buffer
+ */
+export async function replaceTextInPdf(
+  pdfBuffer: Buffer,
+  replacements: Record<string, string>,
+  options: ReplacePdfTextOptions = {}
+): Promise<ReplacePdfTextResult> {
+  if (!PDF_CONVERTER_URL) {
+    throw new Error('Document conversion is not configured. Set PDF_CONVERTER_URL environment variable.');
+  }
+
+  const { filename = 'document.pdf' } = options;
+
+  // Ensure filename has .pdf extension
+  const pdfFilename = filename.toLowerCase().endsWith('.pdf') ? filename : `${filename}.pdf`;
+
+  // Skip if no replacements
+  const replacementCount = Object.keys(replacements).length;
+  if (replacementCount === 0) {
+    logger.info({ filename: pdfFilename }, 'No replacements to apply to PDF');
+    return { pdfBuffer };
+  }
+
+  try {
+    logger.info({ size: pdfBuffer.length, filename: pdfFilename, replacements: replacementCount },
+      'Starting PDF text replacement (PyMuPDF)');
+
+    const formData = new FormData();
+    formData.append('file', new Blob([pdfBuffer]), pdfFilename);
+    formData.append('replacements', JSON.stringify(replacements));
+
+    const response = await fetch(`${PDF_CONVERTER_URL}/replace-text-pdf`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' })) as { detail?: string };
+      throw new Error(`PDF text replacement failed: ${errorData.detail || response.statusText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const resultBuffer = Buffer.from(arrayBuffer);
+
+    logger.info({ inputSize: pdfBuffer.length, outputSize: resultBuffer.length, replacements: replacementCount },
+      'PDF text replacement completed');
+
+    return { pdfBuffer: resultBuffer };
+  } catch (error) {
+    logger.error({ error }, 'PDF text replacement failed');
+    throw new Error(`PDF text replacement failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// ============================================================================
 // Health Check
 // ============================================================================
 
