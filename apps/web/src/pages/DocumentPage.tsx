@@ -14,8 +14,10 @@ import { CommentsPanel } from '../components/CommentsPanel';
 import { FindReplaceModal } from '../components/FindReplaceModal';
 import { DocumentAnalyticsBadge } from '../components/DocumentAnalyticsBadge';
 import { LeverageReport } from '../components/LeverageReport';
+import { useToastActions } from '../components/Toast';
 import { formatWorkflowStatus, formatSegmentStatus } from '../utils/formatters';
 import { useOrgStore } from '../stores/org';
+import { BottomSheet, FloatingActionButton } from '../components/mobile';
 
 type StatusFilter = 'all' | 'untranslated' | 'translated' | 'reviewed' | 'fuzzy';
 
@@ -83,6 +85,7 @@ export function DocumentPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { currentOrg } = useOrgStore();
+  const toast = useToastActions();
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [pendingInsert, setPendingInsert] = useState<{ text: string; mode: 'replace' | 'insert' } | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -95,6 +98,10 @@ export function DocumentPage() {
   const [concordanceQuery, setConcordanceQuery] = useState('');
   const [concordanceSearchIn, setConcordanceSearchIn] = useState<'source' | 'target' | 'both'>('both');
   const [showFindReplace, setShowFindReplace] = useState(false);
+
+  // Mobile panel state
+  const [showMobilePanel, setShowMobilePanel] = useState(false);
+  const [mobilePanelTab, setMobilePanelTab] = useState<'tm' | 'concordance' | 'terms' | 'qa' | 'comments'>('tm');
 
   // Global keyboard shortcut handler
   useEffect(() => {
@@ -254,6 +261,66 @@ export function DocumentPage() {
     }
   };
 
+  // Mutation for advancing workflow status
+  const advanceWorkflowMutation = useMutation({
+    mutationFn: (newStatus: 'review_1' | 'review_2' | 'complete') =>
+      projectsApi.updateDocumentStatus(documentId, newStatus),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['document', documentId] });
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
+      toast.success('Workflow advanced successfully');
+    },
+    onError: (error: any) => {
+      const message = error?.data?.error || error?.message || 'Failed to advance workflow';
+      toast.error(message);
+    },
+  });
+
+  // Determine next workflow stage and progress
+  const getNextWorkflowStage = () => {
+    if (!document) return null;
+    const { workflowStatus, workflowType } = document;
+    const total = allSegments.length;
+
+    if (workflowStatus === 'translation') {
+      const translatedCount = allSegments.filter(s =>
+        s.status === 'translated' || s.status === 'reviewed_1' || s.status === 'reviewed_2' || s.status === 'locked'
+      ).length;
+      const ready = translatedCount === total;
+
+      if (workflowType === 'simple') {
+        return { status: 'complete' as const, label: 'Mark Complete', ready, progress: `${translatedCount}/${total}` };
+      }
+      return { status: 'review_1' as const, label: 'Send to Review', ready, progress: `${translatedCount}/${total}` };
+    }
+
+    if (workflowStatus === 'review_1') {
+      const reviewed1Count = allSegments.filter(s =>
+        s.status === 'reviewed_1' || s.status === 'reviewed_2' || s.status === 'locked'
+      ).length;
+      const ready = reviewed1Count === total;
+
+      if (workflowType === 'single_review') {
+        return { status: 'complete' as const, label: 'Mark Complete', ready, progress: `${reviewed1Count}/${total}` };
+      }
+      return { status: 'review_2' as const, label: 'Send to Final Review', ready, progress: `${reviewed1Count}/${total}` };
+    }
+
+    if (workflowStatus === 'review_2') {
+      const reviewed2Count = allSegments.filter(s =>
+        s.status === 'reviewed_2' || s.status === 'locked'
+      ).length;
+      const ready = reviewed2Count === total;
+      // Always show for review_2 to indicate progress
+      return { status: 'complete' as const, label: 'Mark Complete', ready, progress: `${reviewed2Count}/${total}` };
+    }
+
+    return null;
+  };
+
+  const nextStage = getNextWorkflowStage();
+
   // Check if document is a PDF (for showing viewer)
   const isPdf = document?.fileType === 'pdf';
   const isDocx = document?.fileType === 'docx';
@@ -312,24 +379,51 @@ export function DocumentPage() {
       {/* Compact Header Bar */}
       <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-surface-panel border-b border-border">
         {/* Left: Navigation + Title */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <Link
             to="/projects/$projectId"
             params={{ projectId: document.projectId }}
-            className="p-1 text-text-secondary hover:text-text hover:bg-surface-hover rounded focus:outline-none focus:ring-1 focus:ring-accent"
+            className="p-2 -ml-1 text-text-secondary hover:text-text hover:bg-surface-hover rounded focus:outline-none focus:ring-1 focus:ring-accent min-h-touch min-w-touch flex items-center justify-center md:p-1 md:min-h-0 md:min-w-0 md:-ml-0"
             title="Back to project"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <div className="h-4 w-px bg-border" />
-          <h1 className="text-sm font-medium text-text truncate">{document.name}</h1>
-          <span className={`px-1.5 py-0.5 text-2xs font-medium ${
+          <div className="h-4 w-px bg-border hidden md:block" />
+          <h1 className="text-sm font-medium text-text truncate max-w-[150px] md:max-w-none">{document.name}</h1>
+          <span className={`hidden sm:inline-flex px-1.5 py-0.5 text-2xs font-medium ${
             document.workflowStatus === 'complete' ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'
           }`}>
             {formatWorkflowStatus(document.workflowStatus)}
           </span>
+          {/* Advance workflow button - shows progress and enables when ready */}
+          {nextStage && document.canEdit !== false && (
+            <button
+              onClick={() => nextStage.ready && advanceWorkflowMutation.mutate(nextStage.status)}
+              disabled={advanceWorkflowMutation.isPending || !nextStage.ready}
+              className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium ${
+                nextStage.ready
+                  ? 'text-accent bg-accent/10 hover:bg-accent/20'
+                  : 'text-text-muted bg-surface-panel'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={nextStage.ready ? `All segments ready - ${nextStage.label}` : `${nextStage.progress} segments approved`}
+            >
+              {advanceWorkflowMutation.isPending ? (
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : nextStage.ready ? (
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <span className="text-2xs">{nextStage.progress}</span>
+              )}
+              {nextStage.label}
+            </button>
+          )}
         </div>
 
         {/* Center: Progress & Word Counts */}
@@ -362,18 +456,22 @@ export function DocumentPage() {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-2">
-          {/* Analytics Badge */}
-          <DocumentAnalyticsBadge documentId={documentId} />
+        <div className="flex items-center gap-1 md:gap-2">
+          {/* Analytics Badge - hidden on mobile */}
+          <div className="hidden md:block">
+            <DocumentAnalyticsBadge documentId={documentId} />
+          </div>
 
-          {/* Leverage Report */}
-          <LeverageReport
-            documentId={documentId}
-            projectId={document.projectId}
-            documentName={document.name}
-          />
+          {/* Leverage Report - hidden on mobile */}
+          <div className="hidden md:block">
+            <LeverageReport
+              documentId={documentId}
+              projectId={document.projectId}
+              documentName={document.name}
+            />
+          </div>
 
-          <div className="h-4 w-px bg-border" />
+          <div className="h-4 w-px bg-border hidden md:block" />
 
           {/* Export dropdown */}
           <div className="relative">
@@ -478,26 +576,27 @@ export function DocumentPage() {
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-1 px-2 py-1 bg-surface-alt border-b border-border">
+      <div className="flex items-center justify-between gap-1 px-2 py-1 bg-surface-alt border-b border-border overflow-x-auto mobile-hide-scrollbar">
         {/* Filter tabs */}
-        <div className="flex items-center gap-px">
+        <div className="flex items-center gap-px flex-shrink-0">
           {[
             { key: 'all', label: 'All', count: stats.total, tooltip: 'Show all segments' },
             { key: 'untranslated', label: 'New', count: stats.untranslated, tooltip: 'Segments needing translation' },
-            { key: 'translated', label: 'Translated', count: stats.translated, tooltip: 'Translated but not reviewed' },
-            { key: 'reviewed', label: 'Reviewed', count: stats.reviewed, tooltip: 'Reviewed and approved' },
+            { key: 'translated', label: 'Done', count: stats.translated, tooltip: 'Translated but not reviewed', mobileLabel: 'Done' },
+            { key: 'reviewed', label: 'Reviewed', count: stats.reviewed, tooltip: 'Reviewed and approved', mobileLabel: 'Rev' },
           ].map((tab) => (
             <button
               key={tab.key}
               onClick={() => setStatusFilter(tab.key as StatusFilter)}
               title={tab.tooltip}
-              className={`flex items-center gap-1 px-2 py-1 text-xs whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-accent ${
+              className={`flex items-center gap-1 px-2 py-2 md:py-1 text-xs whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-accent min-h-touch md:min-h-0 ${
                 statusFilter === tab.key
                   ? 'bg-surface text-text font-medium border-b-2 border-accent'
                   : 'text-text-secondary hover:text-text hover:bg-surface-hover'
               }`}
             >
-              {tab.label}
+              <span className="hidden sm:inline">{tab.label}</span>
+              <span className="sm:hidden">{(tab as { mobileLabel?: string }).mobileLabel || tab.label}</span>
               <span className={`px-1 py-px text-xs ${
                 statusFilter === tab.key ? 'text-accent' : 'text-text-muted'
               }`}>
@@ -591,11 +690,16 @@ export function DocumentPage() {
 
         {/* Segments list */}
         <div className={`${showPdfViewer ? 'w-full lg:w-1/2' : showSidePanel ? 'w-full lg:w-2/3' : 'w-full'} flex flex-col transition-all`}>
-          {/* Table header - compact */}
-          <div className="grid grid-cols-[3rem_1fr_1fr] gap-0 bg-surface-panel border-b border-border text-2xs font-medium text-text-secondary uppercase tracking-wide">
+          {/* Table header - compact, responsive */}
+          <div className="hidden md:grid grid-cols-[3rem_1fr_1fr] gap-0 bg-surface-panel border-b border-border text-2xs font-medium text-text-secondary uppercase tracking-wide">
             <div className="px-1 py-1 text-center">#</div>
             <div className="px-2 py-1 border-l border-border">Source</div>
             <div className="px-2 py-1 border-l border-border">Target</div>
+          </div>
+          {/* Mobile header */}
+          <div className="md:hidden flex items-center justify-between px-3 py-2 bg-surface-panel border-b border-border">
+            <span className="text-2xs font-medium text-text-secondary uppercase tracking-wide">Segments</span>
+            <span className="text-2xs text-text-muted">{segments.length} / {stats.total}</span>
           </div>
 
           {/* Segments - dense list */}
@@ -605,7 +709,8 @@ export function DocumentPage() {
                 <p className="text-xs">No segments match filter</p>
               </div>
             ) : (
-              segments.map((segment, index) => (
+              <div className="pb-48">
+              {segments.map((segment, index) => (
                 <SegmentRow
                   key={segment.id}
                   segment={segment}
@@ -627,8 +732,10 @@ export function DocumentPage() {
                   mtEnabled={mtStatus?.enabled ?? false}
                   commentCount={commentCounts?.counts?.[segment.id]?.count ?? 0}
                   hasUnresolvedComment={commentCounts?.counts?.[segment.id]?.hasUnresolved ?? false}
+                  workflowStatus={document.workflowStatus}
                 />
-              ))
+              ))}
+              </div>
             )}
           </div>
         </div>
@@ -853,6 +960,172 @@ export function DocumentPage() {
         )}
       </div>
 
+      {/* Mobile FAB for opening panels */}
+      {selectedSegmentId && (
+        <div className="lg:hidden">
+          <FloatingActionButton
+            onClick={() => setShowMobilePanel(true)}
+            label="Open translation tools"
+            badge={selectedSegment?.matches?.length || 0}
+            icon={
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            }
+          />
+        </div>
+      )}
+
+      {/* Mobile Bottom Sheet for Panels */}
+      <BottomSheet
+        isOpen={showMobilePanel}
+        onClose={() => setShowMobilePanel(false)}
+        height="full"
+        tabs={[
+          { id: 'tm', label: `TM (${selectedSegment?.matches?.length || 0})` },
+          { id: 'concordance', label: 'Concordance' },
+          { id: 'terms', label: `Terms (${selectedSegment?.termMatches?.length || 0})` },
+          { id: 'qa', label: 'QA' },
+          { id: 'comments', label: 'Comments' },
+        ]}
+        activeTab={mobilePanelTab}
+        onTabChange={(tab) => setMobilePanelTab(tab as typeof mobilePanelTab)}
+      >
+        {selectedSegmentId && selectedSegment ? (
+          <div className="p-4">
+            {/* TM Matches Tab */}
+            {mobilePanelTab === 'tm' && (
+              <div>
+                {selectedSegment.matches.length === 0 ? (
+                  <p className="text-sm text-text-muted text-center py-8">No matching translations found</p>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedSegment.matches.map((match) => (
+                      <button
+                        key={match.id}
+                        onClick={() => {
+                          handleInsertMatch(match.targetText);
+                          setShowMobilePanel(false);
+                        }}
+                        className="w-full text-left p-3 bg-surface border border-border hover:bg-surface-hover active:bg-surface-panel rounded"
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <MatchBadge percent={match.matchPercent} isContext={match.isContextMatch} />
+                        </div>
+                        <p className="text-xs text-text-secondary mb-1">{match.sourceText}</p>
+                        <p className="text-sm text-text">{match.targetText}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Concordance Tab */}
+            {mobilePanelTab === 'concordance' && (
+              <div>
+                <p className="text-xs text-text-muted mb-3">Search translation memory for specific words or phrases</p>
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={concordanceQuery}
+                    onChange={(e) => setConcordanceQuery(e.target.value)}
+                    placeholder="Enter word or phrase..."
+                    className="flex-1 px-3 py-2.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
+                  />
+                  <select
+                    value={concordanceSearchIn}
+                    onChange={(e) => setConcordanceSearchIn(e.target.value as 'source' | 'target' | 'both')}
+                    className="px-3 py-2.5 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none"
+                  >
+                    <option value="both">Both</option>
+                    <option value="source">Source</option>
+                    <option value="target">Target</option>
+                  </select>
+                </div>
+                {concordanceQuery.trim().length < 2 ? (
+                  <p className="text-sm text-text-muted text-center py-4">Type at least 2 characters to search</p>
+                ) : concordanceLoading ? (
+                  <p className="text-sm text-text-muted text-center py-4">Searching...</p>
+                ) : !concordanceResults?.items?.length ? (
+                  <p className="text-sm text-text-muted text-center py-4">No results found</p>
+                ) : (
+                  <div className="space-y-2">
+                    {concordanceResults.items.slice(0, 10).map((match) => (
+                      <button
+                        key={match.id}
+                        onClick={() => {
+                          handleInsertMatch(match.targetText);
+                          setShowMobilePanel(false);
+                        }}
+                        className="w-full text-left p-3 bg-surface border border-border hover:bg-surface-hover rounded"
+                      >
+                        <p className="text-xs text-text-secondary mb-1">
+                          <HighlightedSelection text={match.sourceText} selection={concordanceQuery} />
+                        </p>
+                        <p className="text-sm text-text">
+                          <HighlightedSelection text={match.targetText} selection={concordanceQuery} />
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Terms Tab */}
+            {mobilePanelTab === 'terms' && (
+              <div>
+                {!selectedSegment.termMatches || selectedSegment.termMatches.length === 0 ? (
+                  <p className="text-sm text-text-muted text-center py-8">No terminology matches in this segment</p>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedSegment.termMatches.map((term, idx) => (
+                      <button
+                        key={`${term.id}-${idx}`}
+                        onClick={() => {
+                          setPendingInsert({ text: term.targetTerm, mode: 'insert' });
+                          setShowMobilePanel(false);
+                        }}
+                        className="w-full flex items-center justify-between p-3 bg-warning-bg border border-warning/30 hover:bg-warning/20 rounded"
+                      >
+                        <span className="text-sm text-warning">{term.sourceTerm}</span>
+                        <span className="text-text-muted">→</span>
+                        <span className="text-sm font-medium text-warning">{term.targetTerm}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* QA Tab */}
+            {mobilePanelTab === 'qa' && (
+              <QAPanel
+                documentId={documentId}
+                segmentId={selectedSegmentId}
+                onSegmentClick={(id) => {
+                  setSelectedSegmentId(id);
+                  setShowMobilePanel(false);
+                }}
+              />
+            )}
+
+            {/* Comments Tab */}
+            {mobilePanelTab === 'comments' && (
+              <CommentsPanel
+                segmentId={selectedSegmentId}
+                documentId={documentId}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="p-4 text-center text-text-muted">
+            <p>Select a segment to view translation tools</p>
+          </div>
+        )}
+      </BottomSheet>
+
       {/* Delete Document Modal */}
       {showDeleteModal && (
         <DeleteConfirmModal
@@ -913,6 +1186,7 @@ function SegmentRow({
   mtEnabled = false,
   commentCount = 0,
   hasUnresolvedComment = false,
+  workflowStatus = 'translation',
 }: {
   segment: SegmentWithMatchInfo;
   index: number;
@@ -933,19 +1207,36 @@ function SegmentRow({
   mtEnabled?: boolean;
   commentCount?: number;
   hasUnresolvedComment?: boolean;
+  workflowStatus?: string;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToastActions();
   const [targetText, setTargetText] = useState(segment.targetText ?? '');
   const [isEditing, setIsEditing] = useState(false);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
 
   // Scroll into view when selected
+  // For the last segment, use 'end' to ensure the expanded editor is visible
   useEffect(() => {
     if (isSelected && rowRef.current) {
-      rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      // Small delay to allow the editor to expand before scrolling
+      const scrollToRow = () => {
+        if (rowRef.current) {
+          rowRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: isLastSegment ? 'end' : 'nearest',
+          });
+        }
+      };
+      // Immediate scroll for initial visibility
+      scrollToRow();
+      // Delayed scroll to handle expanded editor content
+      if (isLastSegment) {
+        setTimeout(scrollToRow, 100);
+      }
     }
-  }, [isSelected]);
+  }, [isSelected, isLastSegment]);
 
   const insertTerm = (term: string) => {
     const editorRef = getEditorRef(editorContainerRef.current);
@@ -982,23 +1273,35 @@ function SegmentRow({
 
   const [lastPropagation, setLastPropagation] = useState<{ count: number } | null>(null);
   const [isMTTranslating, setIsMTTranslating] = useState(false);
+  const [aiTranslateError, setAiTranslateError] = useState<string | null>(null);
+  const [isFromAI, setIsFromAI] = useState(false); // Track if current text came from AI
 
-  // MT Translation mutation
+  // AI Translation mutation
   const mtTranslateMutation = useMutation({
     mutationFn: () => mtApi.translateSegment(segment.id),
-    onMutate: () => setIsMTTranslating(true),
+    onMutate: () => {
+      setIsMTTranslating(true);
+      setAiTranslateError(null);
+    },
     onSuccess: (result) => {
       setTargetText(result.translatedText);
+      setIsFromAI(true); // Mark as AI-translated
       setIsEditing(true);
       setIsMTTranslating(false);
     },
-    onError: () => {
+    onError: (error: any) => {
       setIsMTTranslating(false);
+      const errorMessage = error?.data?.error || error?.message || 'AI translation failed. Please try again.';
+      setAiTranslateError(errorMessage);
+      // Show toast notification for visibility
+      toast.error(errorMessage);
+      // Auto-dismiss inline error after 5 seconds
+      setTimeout(() => setAiTranslateError(null), 5000);
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: { targetText: string; status?: SegmentStatus; confirm?: boolean; propagate?: boolean }) =>
+    mutationFn: (data: { targetText: string; status?: SegmentStatus; confirm?: boolean; propagate?: boolean; matchSource?: 'tm' | 'ai' | 'manual' }) =>
       projectsApi.updateSegment(documentId, segment.id, data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['segments', documentId] });
@@ -1010,6 +1313,10 @@ function SegmentRow({
         setLastPropagation({ count: result.propagation.propagatedCount });
         setTimeout(() => setLastPropagation(null), 3000);
       }
+    },
+    onError: (error: any) => {
+      const message = error?.data?.error || error?.message || 'Failed to save segment';
+      toast.error(message);
     },
   });
 
@@ -1054,6 +1361,10 @@ function SegmentRow({
         clearTermSelection();
       }, 1000);
     },
+    onError: (error: any) => {
+      const message = error?.data?.error || error?.message || 'Failed to add term';
+      toast.error(message);
+    },
   });
 
   const openAddTermModal = () => {
@@ -1096,11 +1407,17 @@ function SegmentRow({
 
   const handleSave = () => {
     if (!targetText.trim()) return;
-    updateMutation.mutate({ targetText, status: 'draft' });
+    updateMutation.mutate(
+      { targetText, status: 'draft', matchSource: isFromAI ? 'ai' : undefined },
+      { onSuccess: () => setIsFromAI(false) }
+    );
   };
 
   const handleConfirm = (force = false) => {
-    if (!targetText.trim()) return;
+    if (!targetText.trim()) {
+      toast.warning('Cannot approve: translation is empty');
+      return;
+    }
 
     // Warn if target is identical to source (but allow override)
     if (!force && targetText.trim() === segment.sourceText.trim()) {
@@ -1108,11 +1425,21 @@ function SegmentRow({
       return;
     }
 
+    // Determine the correct status based on workflow stage
+    // - translation stage: 'translated'
+    // - review_1 stage: 'reviewed_1'
+    // - review_2 stage: 'reviewed_2'
+    const confirmStatus =
+      workflowStatus === 'review_1' ? 'reviewed_1' :
+      workflowStatus === 'review_2' ? 'reviewed_2' :
+      'translated';
+
     setShowSameAsSourceWarning(false);
     updateMutation.mutate(
-      { targetText, status: 'translated', confirm: true, propagate: true },
+      { targetText, status: confirmStatus, confirm: true, propagate: true, matchSource: isFromAI ? 'ai' : undefined },
       {
         onSuccess: () => {
+          setIsFromAI(false);
           if (isLastSegment) {
             onDeselect();
           } else {
@@ -1143,41 +1470,43 @@ function SegmentRow({
   return (
     <div
       ref={rowRef}
-      className={`grid grid-cols-[3rem_1fr_1fr] gap-0 border-b border-border-light cursor-pointer ${
+      className={`border-b border-border-light cursor-pointer ${
         isSelected
           ? 'bg-surface ring-1 ring-inset ring-accent/30'
           : `hover:bg-surface-hover border-l-2 ${statusConfig.border}`
       }`}
       onClick={onClick}
     >
-      {/* Segment number column */}
-      <div className={`flex flex-col items-center justify-center py-2 gap-0.5 ${
-        isSelected ? `border-l-2 ${statusConfig.border}` : ''
-      }`}>
-        <div className="flex items-center gap-0.5">
-          <span className="text-xs font-medium text-text-muted">{index + 1}</span>
-          {/* Comment indicator */}
-          {commentCount > 0 && (
-            <span
-              className={`flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium rounded-full ${
-                hasUnresolvedComment ? 'bg-warning text-white' : 'bg-surface-panel text-text-muted'
-              }`}
-              title={`${commentCount} comment${commentCount > 1 ? 's' : ''}${hasUnresolvedComment ? ' (unresolved)' : ''}`}
-            >
-              {commentCount > 9 ? '9+' : commentCount}
-            </span>
+      {/* Desktop: Grid layout */}
+      <div className="hidden md:grid grid-cols-[3rem_1fr_1fr] gap-0">
+        {/* Segment number column */}
+        <div className={`flex flex-col items-center justify-center py-2 gap-0.5 ${
+          isSelected ? `border-l-2 ${statusConfig.border}` : ''
+        }`}>
+          <div className="flex items-center gap-0.5">
+            <span className="text-xs font-medium text-text-muted">{index + 1}</span>
+            {/* Comment indicator */}
+            {commentCount > 0 && (
+              <span
+                className={`flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium rounded-full ${
+                  hasUnresolvedComment ? 'bg-warning text-white' : 'bg-surface-panel text-text-muted'
+                }`}
+                title={`${commentCount} comment${commentCount > 1 ? 's' : ''}${hasUnresolvedComment ? ' (unresolved)' : ''}`}
+              >
+                {commentCount > 9 ? '9+' : commentCount}
+              </span>
+            )}
+          </div>
+          {segment.bestMatchPercent !== null && segment.bestMatchPercent !== undefined && (
+            <MatchBadge percent={segment.bestMatchPercent} isContext={segment.hasContextMatch} />
           )}
+          <span
+            className={`text-2xs ${statusConfig.color} cursor-help`}
+            title={statusConfig.tooltip}
+          >
+            {statusConfig.label}
+          </span>
         </div>
-        {segment.bestMatchPercent !== null && segment.bestMatchPercent !== undefined && (
-          <MatchBadge percent={segment.bestMatchPercent} isContext={segment.hasContextMatch} />
-        )}
-        <span
-          className={`text-2xs ${statusConfig.color} cursor-help`}
-          title={statusConfig.tooltip}
-        >
-          {statusConfig.label}
-        </span>
-      </div>
 
       {/* Source panel */}
       <div
@@ -1297,12 +1626,15 @@ function SegmentRow({
                 onClick={() => handleConfirm()}
                 disabled={updateMutation.isPending || !targetText.trim()}
                 className="px-2.5 py-1 text-xs text-text-inverse bg-success hover:bg-success-hover disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-success"
-                title={writableTMName
-                  ? `Confirm translation and save to Translation Memory "${writableTMName}" (Ctrl+Enter)`
-                  : 'Confirm translation as complete (Ctrl+Enter)'
+                title={
+                  workflowStatus === 'review_1' ? 'Approve translation (Review 1) (Ctrl+Enter)' :
+                  workflowStatus === 'review_2' ? 'Approve translation (Final Review) (Ctrl+Enter)' :
+                  writableTMName ? `Confirm translation and save to TM "${writableTMName}" (Ctrl+Enter)` :
+                  'Confirm translation as complete (Ctrl+Enter)'
                 }
               >
-                Confirm{writableTMName && ' + TM'}
+                {workflowStatus === 'review_1' || workflowStatus === 'review_2' ? 'Approve' : 'Confirm'}
+                {writableTMName && workflowStatus === 'translation' && ' + TM'}
               </button>
 
               <div className="h-4 w-px bg-border mx-0.5" />
@@ -1315,13 +1647,13 @@ function SegmentRow({
                 Copy Source
               </button>
 
-              {/* MT Translate button */}
+              {/* AI Translate button */}
               {mtEnabled && (
                 <button
                   onClick={() => mtTranslateMutation.mutate()}
                   disabled={isMTTranslating || updateMutation.isPending}
                   className="px-2 py-1 text-xs text-accent hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-accent"
-                  title="Machine translate this segment using DeepL"
+                  title="AI Translate this segment"
                 >
                   {isMTTranslating ? (
                     <span className="flex items-center gap-1">
@@ -1329,10 +1661,18 @@ function SegmentRow({
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      MT...
+                      AI...
                     </span>
                   ) : (
-                    'MT'
+                    <span className="flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                        {/* Sparkles icon - multiple 4-pointed stars */}
+                        <path d="M9.5 2l1.5 3.5L14.5 7l-3.5 1.5L9.5 12l-1.5-3.5L4.5 7l3.5-1.5L9.5 2z" />
+                        <path d="M19 8l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5L15.5 11.5l2.5-1L19 8z" opacity="0.7" />
+                        <path d="M14.5 16l.75 1.875 1.875.75-1.875.75-.75 1.875-.75-1.875L12 18.625l1.875-.75.625-1.875z" opacity="0.5" />
+                      </svg>
+                      AI
+                    </span>
                   )}
                 </button>
               )}
@@ -1352,6 +1692,24 @@ function SegmentRow({
                 <span className="px-2 py-0.5 text-xs text-accent-muted bg-accent/10 animate-pulse">
                   +{lastPropagation.count}
                 </span>
+              )}
+
+              {/* AI Translation error */}
+              {aiTranslateError && (
+                <div className="flex items-center gap-1 px-2 py-0.5 text-xs text-danger bg-danger-bg border border-danger/20">
+                  <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="truncate max-w-[200px]">{aiTranslateError}</span>
+                  <button
+                    onClick={() => setAiTranslateError(null)}
+                    className="ml-1 text-danger hover:text-danger-hover"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               )}
 
               {/* Cancel - pushed to end */}
@@ -1497,6 +1855,195 @@ function SegmentRow({
             {segment.targetText || '—'}
           </div>
         )}
+      </div>
+      </div>
+
+      {/* Mobile: Stacked layout */}
+      <div className="md:hidden">
+        {/* Header row with number, status, match */}
+        <div className={`flex items-center gap-2 px-3 py-2 bg-surface-panel ${
+          isSelected ? `border-l-3 ${statusConfig.border}` : ''
+        }`}>
+          <span className="text-sm font-medium text-text-muted w-8">#{index + 1}</span>
+          {segment.bestMatchPercent !== null && segment.bestMatchPercent !== undefined && (
+            <MatchBadge percent={segment.bestMatchPercent} isContext={segment.hasContextMatch} />
+          )}
+          <span className={`text-xs ${statusConfig.color}`}>{statusConfig.label}</span>
+          {commentCount > 0 && (
+            <span
+              className={`flex items-center justify-center w-5 h-5 text-[10px] font-medium rounded-full ${
+                hasUnresolvedComment ? 'bg-warning text-white' : 'bg-surface text-text-muted'
+              }`}
+            >
+              {commentCount > 9 ? '9+' : commentCount}
+            </span>
+          )}
+        </div>
+
+        {/* Source text */}
+        <div
+          ref={sourceRef}
+          className="px-3 py-2 bg-surface-panel border-t border-border-light"
+          onMouseUp={handleSourceMouseUp}
+        >
+          <div className="text-2xs text-text-muted uppercase tracking-wide mb-1">Source</div>
+          <div className="text-sm text-text leading-relaxed">
+            {termSelection.source ? (
+              <HighlightedSelection text={segment.sourceText} selection={termSelection.source} />
+            ) : (
+              <HighlightedText
+                text={segment.sourceText}
+                termMatches={termMatches ?? []}
+                onTermClick={(term) => insertTerm(term.targetTerm)}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Target text / Editor */}
+        <div className="px-3 py-2 bg-surface-alt border-t border-border-light">
+          <div className="text-2xs text-text-muted uppercase tracking-wide mb-1">Target</div>
+          {isSelected && !canEdit ? (
+            <div className="space-y-2">
+              <div className={`text-sm leading-relaxed ${segment.targetText ? 'text-text' : 'text-text-muted'}`}>
+                {segment.targetText || '(No translation)'}
+              </div>
+              <div className="text-2xs text-text-muted italic">View only</div>
+            </div>
+          ) : isSelected ? (
+            <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+              <div ref={editorContainerRef}>
+                <TranslationEditor
+                  value={targetText}
+                  onChange={(val) => {
+                    setTargetText(val);
+                    setShowSameAsSourceWarning(false);
+                  }}
+                  onFocus={() => setIsEditing(true)}
+                  onSelectionChange={handleTargetSelectionChange}
+                  onConfirm={() => handleConfirm()}
+                  onSave={handleSave}
+                  placeholder="Enter translation..."
+                  sourceText={segment.sourceText}
+                  terms={termMatches}
+                  disabled={updateMutation.isPending}
+                  className={termSelection.target ? 'border-warning' : 'border-border'}
+                  minHeight={60}
+                />
+              </div>
+
+              {/* Same as source warning */}
+              {showSameAsSourceWarning && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-warning-bg border border-warning/30 text-sm">
+                  <span className="text-warning">Same as source.</span>
+                  <button
+                    onClick={() => handleConfirm(true)}
+                    className="px-3 py-1.5 text-sm font-medium text-warning hover:bg-warning/10"
+                  >
+                    Confirm anyway
+                  </button>
+                </div>
+              )}
+
+              {/* Mobile action buttons - larger touch targets */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleSave}
+                  disabled={updateMutation.isPending || !targetText.trim()}
+                  className="flex-1 min-w-[100px] px-4 py-3 text-sm font-medium text-text-secondary bg-surface border border-border hover:bg-surface-hover disabled:opacity-40 active:bg-surface-panel"
+                >
+                  Save Draft
+                </button>
+
+                <button
+                  onClick={() => handleConfirm()}
+                  disabled={updateMutation.isPending || !targetText.trim()}
+                  className="flex-1 min-w-[100px] px-4 py-3 text-sm font-medium text-text-inverse bg-success hover:bg-success-hover disabled:opacity-40 active:bg-success"
+                >
+                  {workflowStatus === 'review_1' || workflowStatus === 'review_2' ? 'Approve' : 'Confirm'}
+                  {writableTMName && workflowStatus === 'translation' && ' + TM'}
+                </button>
+
+                <button
+                  onClick={handleCopySource}
+                  className="px-4 py-3 text-sm text-text-secondary bg-surface border border-border hover:bg-surface-hover active:bg-surface-panel"
+                >
+                  Copy Src
+                </button>
+
+                {mtEnabled && (
+                  <button
+                    onClick={() => mtTranslateMutation.mutate()}
+                    disabled={isMTTranslating || updateMutation.isPending}
+                    className="px-4 py-3 text-sm text-accent bg-surface border border-accent/30 hover:bg-accent/10 disabled:opacity-50 active:bg-accent/20 flex items-center justify-center gap-1"
+                  >
+                    {isMTTranslating ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        AI...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          {/* Sparkles icon - multiple 4-pointed stars */}
+                          <path d="M9.5 2l1.5 3.5L14.5 7l-3.5 1.5L9.5 12l-1.5-3.5L4.5 7l3.5-1.5L9.5 2z" />
+                          <path d="M19 8l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5L15.5 11.5l2.5-1L19 8z" opacity="0.7" />
+                          <path d="M14.5 16l.75 1.875 1.875.75-1.875.75-.75 1.875-.75-1.875L12 18.625l1.875-.75.625-1.875z" opacity="0.5" />
+                        </svg>
+                        AI
+                      </>
+                    )}
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    setTargetText(segment.targetText ?? '');
+                    setIsEditing(false);
+                    onDeselect();
+                  }}
+                  className="px-4 py-3 text-sm text-text-muted bg-surface border border-border hover:bg-surface-hover"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              {/* Propagation indicator */}
+              {lastPropagation && (
+                <div className="text-center">
+                  <span className="px-3 py-1 text-sm text-accent-muted bg-accent/10 animate-pulse">
+                    +{lastPropagation.count} segments updated
+                  </span>
+                </div>
+              )}
+
+              {/* AI Translation error (mobile) */}
+              {aiTranslateError && (
+                <div className="flex items-center justify-center gap-2 p-2 text-sm text-danger bg-danger-bg border border-danger/20">
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>{aiTranslateError}</span>
+                  <button
+                    onClick={() => setAiTranslateError(null)}
+                    className="ml-auto text-danger hover:text-danger-hover"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className={`text-sm leading-relaxed ${segment.targetText ? 'text-text' : 'text-text-muted'}`}>
+              {segment.targetText || '—'}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

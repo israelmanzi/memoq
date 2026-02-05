@@ -4,6 +4,7 @@ import { tmApi, type TMDeleteInfo, type TMXUploadResult } from '../api';
 import { useOrgStore } from '../stores/org';
 import { Pagination } from '../components/Pagination';
 import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
+import { useToastActions } from '../components/Toast';
 
 const PAGE_SIZE = 10;
 
@@ -129,6 +130,7 @@ function formatDate(date: string | Date | null | undefined): string {
 
 function TMRow({ tm, onDelete }: { tm: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; updatedAt?: Date | string; createdByName?: string | null }; onDelete: (tm: { id: string; name: string }) => void }) {
   const queryClient = useQueryClient();
+  const toast = useToastActions();
   const [isExpanded, setIsExpanded] = useState(false);
   const [deleteUnitId, setDeleteUnitId] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -151,6 +153,9 @@ function TMRow({ tm, onDelete }: { tm: { id: string; name: string; sourceLanguag
       queryClient.invalidateQueries({ queryKey: ['tm', tm.id] });
       queryClient.invalidateQueries({ queryKey: ['tm', tm.id, 'units'] });
       setDeleteUnitId(null);
+    },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to delete translation unit');
     },
   });
 
@@ -348,6 +353,7 @@ function UploadTMXModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const toast = useToastActions();
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadResult, setUploadResult] = useState<TMXUploadResult | null>(null);
@@ -359,11 +365,14 @@ function UploadTMXModal({
     onSuccess: (result) => {
       setUploadResult(result);
       if (result.warnings.length === 0) {
+        toast.success(`Imported ${result.imported} translation units`);
         onSuccess();
       }
     },
     onError: (err: any) => {
-      setError(err.data?.error || 'Failed to upload file');
+      const message = err.data?.error || 'Failed to upload file';
+      setError(message);
+      toast.error(message);
     },
   });
 
@@ -536,6 +545,7 @@ function CreateTMModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const toast = useToastActions();
   const [name, setName] = useState('');
   const [sourceLanguage, setSourceLanguage] = useState('en');
   const [targetLanguage, setTargetLanguage] = useState('');
@@ -543,9 +553,14 @@ function CreateTMModal({
 
   const createMutation = useMutation({
     mutationFn: () => tmApi.create(orgId, { name, sourceLanguage, targetLanguage }),
-    onSuccess,
+    onSuccess: () => {
+      toast.success('Translation Memory created');
+      onSuccess();
+    },
     onError: (err: any) => {
-      setError(err.data?.error || err.message || 'Failed to create Translation Memory');
+      const message = err.data?.error || err.message || 'Failed to create Translation Memory';
+      setError(message);
+      toast.error(message);
     },
   });
 

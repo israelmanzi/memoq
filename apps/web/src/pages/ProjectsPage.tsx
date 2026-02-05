@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { projectsApi } from '../api';
 import { useOrgStore } from '../stores/org';
 import { Pagination } from '../components/Pagination';
+import { useToastActions } from '../components/Toast';
 import { formatProjectStatus, formatWorkflowType } from '../utils/formatters';
 import type { ProjectStatus } from '@oxy/shared';
 
@@ -212,6 +213,7 @@ function CreateProjectModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const toast = useToastActions();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [sourceLanguage, setSourceLanguage] = useState('en');
@@ -229,7 +231,13 @@ function CreateProjectModal({
         workflowType,
         deadline: deadline ? new Date(deadline).toISOString() : undefined,
       }),
-    onSuccess,
+    onSuccess: () => {
+      toast.success('Project created');
+      onSuccess();
+    },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to create project');
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {

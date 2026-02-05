@@ -4,6 +4,7 @@ import { tbApi, type TBDeleteInfo, type TBXUploadResult } from '../api';
 import { useOrgStore } from '../stores/org';
 import { Pagination } from '../components/Pagination';
 import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
+import { useToastActions } from '../components/Toast';
 
 const PAGE_SIZE = 10;
 
@@ -129,6 +130,7 @@ function formatDate(date: string | Date | null | undefined): string {
 
 function TBRow({ tb, onDelete }: { tb: { id: string; name: string; sourceLanguage: string; targetLanguage: string; createdAt?: Date | string; createdByName?: string | null }; onDelete: (tb: { id: string; name: string }) => void }) {
   const queryClient = useQueryClient();
+  const toast = useToastActions();
   const [isExpanded, setIsExpanded] = useState(false);
   const [deleteTermId, setDeleteTermId] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -151,6 +153,9 @@ function TBRow({ tb, onDelete }: { tb: { id: string; name: string; sourceLanguag
       queryClient.invalidateQueries({ queryKey: ['tb', tb.id] });
       queryClient.invalidateQueries({ queryKey: ['tb', tb.id, 'terms'] });
       setDeleteTermId(null);
+    },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to delete term');
     },
   });
 
@@ -341,6 +346,7 @@ function UploadTBXModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const toast = useToastActions();
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadResult, setUploadResult] = useState<TBXUploadResult | null>(null);
@@ -352,11 +358,14 @@ function UploadTBXModal({
     onSuccess: (result) => {
       setUploadResult(result);
       if (result.warnings.length === 0) {
+        toast.success(`Imported ${result.imported} terms`);
         onSuccess();
       }
     },
     onError: (err: any) => {
-      setError(err.data?.error || 'Failed to upload file');
+      const message = err.data?.error || 'Failed to upload file';
+      setError(message);
+      toast.error(message);
     },
   });
 
@@ -529,13 +538,20 @@ function CreateTBModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const toast = useToastActions();
   const [name, setName] = useState('');
   const [sourceLanguage, setSourceLanguage] = useState('en');
   const [targetLanguage, setTargetLanguage] = useState('');
 
   const createMutation = useMutation({
     mutationFn: () => tbApi.create(orgId, { name, sourceLanguage, targetLanguage }),
-    onSuccess,
+    onSuccess: () => {
+      toast.success('Term Base created');
+      onSuccess();
+    },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to create Term Base');
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {

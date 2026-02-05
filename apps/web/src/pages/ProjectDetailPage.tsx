@@ -10,6 +10,7 @@ import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
 import { ActivityFeed } from '../components/ActivityFeed';
 import { ProjectStatsDashboard } from '../components/ProjectStatsDashboard';
 import { ProductivityMetrics } from '../components/ProductivityMetrics';
+import { useToastActions } from '../components/Toast';
 import { formatProjectStatus, formatWorkflowType, formatWorkflowStatus, formatRelativeTime, formatAbsoluteDateTime } from '../utils/formatters';
 import type { ProjectStatus, WorkflowType, DocumentAssignmentFilter, DocumentRole, DocumentAssignmentInfo } from '@oxy/shared';
 
@@ -160,6 +161,9 @@ export function ProjectDetailPage() {
     queryKey: ['project', projectId],
     queryFn: () => projectsApi.get(projectId),
   });
+
+  // Permission: can user manage this project (upload, delete, archive, settings)?
+  const canManageProject = currentOrg?.role === 'admin' || project?.userRole === 'project_manager';
 
   const { data: docsData } = useQuery({
     queryKey: ['documents', projectId, docsOffset, docFilter],
@@ -329,7 +333,8 @@ export function ProjectDetailPage() {
             { key: 'resources', label: 'Resources', tooltip: 'Attached Translation Memories and Term Bases' },
             { key: 'activity', label: 'Activity', tooltip: 'Recent actions and changes' },
             { key: 'analytics', label: 'Analytics', tooltip: 'Project statistics and productivity metrics' },
-            { key: 'settings', label: 'Settings', tooltip: 'Project configuration and danger zone' },
+            // Only show settings tab to admins and project managers
+            ...(canManageProject ? [{ key: 'settings', label: 'Settings', tooltip: 'Project configuration and danger zone' }] : []),
           ].map((tab) => (
             <button
               key={tab.key}
@@ -375,16 +380,18 @@ export function ProjectDetailPage() {
                 <option value="unassigned">Unassigned</option>
               </select>
             </div>
-            <button
-              onClick={() => setShowAddDocModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-text-inverse text-sm font-medium hover:bg-accent-hover focus:outline-none focus:ring-1 focus:ring-accent rounded-sm"
-              title="Upload a new document for translation"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Upload
-            </button>
+            {canManageProject && (
+              <button
+                onClick={() => setShowAddDocModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-text-inverse text-sm font-medium hover:bg-accent-hover focus:outline-none focus:ring-1 focus:ring-accent rounded-sm"
+                title="Upload a new document for translation"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Upload
+              </button>
+            )}
           </div>
 
           {/* Table header */}
@@ -406,12 +413,18 @@ export function ProjectDetailPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
                 <p className="text-base text-text-muted mb-2">No documents yet</p>
-                <button
-                  onClick={() => setShowAddDocModal(true)}
-                  className="text-sm text-accent hover:text-accent-hover font-medium"
-                >
-                  Upload your first document
-                </button>
+                {canManageProject ? (
+                  <button
+                    onClick={() => setShowAddDocModal(true)}
+                    className="text-sm text-accent hover:text-accent-hover font-medium"
+                  >
+                    Upload your first document
+                  </button>
+                ) : (
+                  <p className="text-sm text-text-muted">
+                    Ask a project manager to upload documents
+                  </p>
+                )}
               </div>
             ) : (
               <>
@@ -512,17 +525,19 @@ export function ProjectDetailPage() {
                           />
                         </div>
 
-                        {/* Assign button */}
+                        {/* Assign button - only for managers */}
                         <div className="flex justify-center">
-                          <button
-                            onClick={() => setAssigningDocument(doc)}
-                            className="p-1.5 text-text-muted hover:text-accent hover:bg-accent/10 rounded-sm"
-                            title="Manage assignments"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                            </svg>
-                          </button>
+                          {canManageProject && (
+                            <button
+                              onClick={() => setAssigningDocument(doc)}
+                              className="p-1.5 text-text-muted hover:text-accent hover:bg-accent/10 rounded-sm"
+                              title="Manage assignments"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                              </svg>
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -547,16 +562,18 @@ export function ProjectDetailPage() {
               <h2 className="text-sm font-medium text-text">Resources (TM/TB)</h2>
               <p className="text-2xs text-text-muted">Translation Memories and Term Bases for this project</p>
             </div>
-            <button
-              onClick={() => setShowAddResourceModal(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-surface border border-border text-text-secondary text-xs font-medium hover:bg-surface-hover focus:outline-none focus:ring-1 focus:ring-accent"
-              title="Attach a Translation Memory or Term Base to this project"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Attach Resource
-            </button>
+            {canManageProject && (
+              <button
+                onClick={() => setShowAddResourceModal(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-surface border border-border text-text-secondary text-xs font-medium hover:bg-surface-hover focus:outline-none focus:ring-1 focus:ring-accent"
+                title="Attach a Translation Memory or Term Base to this project"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Attach Resource
+              </button>
+            )}
           </div>
           <div className="divide-y divide-border-light">
             {resources.length === 0 ? (
@@ -568,12 +585,18 @@ export function ProjectDetailPage() {
                 <p className="text-xs text-text-muted mb-3">
                   Attach a TM to enable translation suggestions and "Save to TM"
                 </p>
-                <button
-                  onClick={() => setShowAddResourceModal(true)}
-                  className="text-sm text-accent hover:text-accent-hover"
-                >
-                  Attach a resource
-                </button>
+                {canManageProject ? (
+                  <button
+                    onClick={() => setShowAddResourceModal(true)}
+                    className="text-sm text-accent hover:text-accent-hover"
+                  >
+                    Attach a resource
+                  </button>
+                ) : (
+                  <p className="text-xs text-text-muted">
+                    Ask a project manager to attach resources
+                  </p>
+                )}
               </div>
             ) : (
               resources.map((resource) => (
@@ -581,6 +604,7 @@ export function ProjectDetailPage() {
                   key={resource.id}
                   resource={resource}
                   projectId={projectId}
+                  canRemove={canManageProject}
                   onRemove={() => {
                     queryClient.invalidateQueries({ queryKey: ['project-resources', projectId] });
                   }}
@@ -620,8 +644,8 @@ export function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Settings Tab */}
-      {activeTab === 'settings' && (
+      {/* Settings Tab - only for admins and project managers */}
+      {activeTab === 'settings' && canManageProject && (
         <ProjectSettingsTab
           project={project}
           onUpdate={() => {
@@ -631,8 +655,8 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {/* Add Document Modal */}
-      {showAddDocModal && (
+      {/* Add Document Modal - only for admins and project managers */}
+      {showAddDocModal && canManageProject && (
         <AddDocumentModal
           projectId={projectId}
           onClose={() => setShowAddDocModal(false)}
@@ -644,8 +668,8 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {/* Add Resource Modal */}
-      {showAddResourceModal && currentOrg && (
+      {/* Add Resource Modal - only for admins and project managers */}
+      {showAddResourceModal && currentOrg && canManageProject && (
         <AddResourceModal
           projectId={projectId}
           orgId={currentOrg.id}
@@ -658,8 +682,8 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && deleteInfo && (
+      {/* Delete Confirmation Modal - only for admins and project managers */}
+      {showDeleteModal && deleteInfo && canManageProject && (
         <DeleteConfirmModal
           isOpen={true}
           onClose={() => {
@@ -994,11 +1018,14 @@ function ResourceRow({
   resource,
   projectId,
   onRemove,
+  canRemove,
 }: {
   resource: { id: string; resourceType: string; resourceId: string; isWritable: boolean };
   projectId: string;
   onRemove: () => void;
+  canRemove: boolean;
 }) {
+  const toast = useToastActions();
   const { data: tmData } = useQuery({
     queryKey: ['tm', resource.resourceId],
     queryFn: () => tmApi.get(resource.resourceId),
@@ -1014,6 +1041,9 @@ function ResourceRow({
   const removeMutation = useMutation({
     mutationFn: () => projectsApi.removeResource(projectId, resource.resourceId),
     onSuccess: onRemove,
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to remove resource');
+    },
   });
 
   const name = resource.resourceType === 'tm' ? tmData?.name : tbData?.name;
@@ -1047,14 +1077,16 @@ function ResourceRow({
           </div>
         </div>
       </div>
-      <button
-        onClick={() => removeMutation.mutate()}
-        disabled={removeMutation.isPending}
-        className="text-xs text-danger hover:text-danger-hover disabled:opacity-50"
-        title="Remove this resource from the project"
-      >
-        {removeMutation.isPending ? 'Removing...' : 'Remove'}
-      </button>
+      {canRemove && (
+        <button
+          onClick={() => removeMutation.mutate()}
+          disabled={removeMutation.isPending}
+          className="text-xs text-danger hover:text-danger-hover disabled:opacity-50"
+          title="Remove this resource from the project"
+        >
+          {removeMutation.isPending ? 'Removing...' : 'Remove'}
+        </button>
+      )}
     </div>
   );
 }
@@ -1096,6 +1128,9 @@ function ProjectSettingsTab({
       queryClient.invalidateQueries({ queryKey: ['project', project.id] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
+    onError: (err: any) => {
+      setError(err.data?.error || 'Failed to archive project');
+    },
   });
 
   const unarchiveMutation = useMutation({
@@ -1103,6 +1138,9 @@ function ProjectSettingsTab({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err: any) => {
+      setError(err.data?.error || 'Failed to restore project');
     },
   });
 
@@ -1270,6 +1308,7 @@ function AddResourceModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const toast = useToastActions();
   const [resourceType, setResourceType] = useState<'tm' | 'tb'>('tm');
   const [selectedId, setSelectedId] = useState('');
   const [isWritable, setIsWritable] = useState(true);
@@ -1291,6 +1330,9 @@ function AddResourceModal({
   const addMutation = useMutation({
     mutationFn: () => projectsApi.addResource(projectId, resourceType, selectedId, isWritable),
     onSuccess,
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to add resource');
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {

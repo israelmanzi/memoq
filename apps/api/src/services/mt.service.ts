@@ -126,6 +126,17 @@ export async function translateText(
     if (!response.ok) {
       const error = await response.text();
       logger.error({ status: response.status, error }, 'DeepL API error');
+
+      // Provide user-friendly error messages for common errors
+      if (response.status === 429) {
+        throw new Error('Rate limit exceeded. Please wait a moment before trying again.');
+      }
+      if (response.status === 456) {
+        throw new Error('Translation quota exceeded. Contact your administrator.');
+      }
+      if (response.status === 403) {
+        throw new Error('Invalid API key. Machine translation is misconfigured.');
+      }
       throw new Error(`DeepL API error: ${response.status} - ${error}`);
     }
 
@@ -187,6 +198,17 @@ export async function translateBatch(
     if (!response.ok) {
       const error = await response.text();
       logger.error({ status: response.status, error }, 'DeepL API error');
+
+      // Provide user-friendly error messages for common errors
+      if (response.status === 429) {
+        throw new Error('Rate limit exceeded. Please wait a moment before trying again.');
+      }
+      if (response.status === 456) {
+        throw new Error('Translation quota exceeded. Contact your administrator.');
+      }
+      if (response.status === 403) {
+        throw new Error('Invalid API key. Machine translation is misconfigured.');
+      }
       throw new Error(`DeepL API error: ${response.status} - ${error}`);
     }
 

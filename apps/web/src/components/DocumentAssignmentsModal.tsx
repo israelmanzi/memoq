@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi, orgsApi } from '../api';
 import type { DocumentRole, DocumentAssignmentWithUser, WorkflowType } from '@oxy/shared';
 import { formatDocumentRole } from '../utils/formatters';
+import { useToastActions } from './Toast';
 
 interface Props {
   documentId: string;
@@ -37,6 +38,7 @@ export function DocumentAssignmentsModal({
   onAssignmentChange,
 }: Props) {
   const queryClient = useQueryClient();
+  const toast = useToastActions();
   const [selectedRole, setSelectedRole] = useState<DocumentRole>('translator');
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +80,9 @@ export function DocumentAssignmentsModal({
       projectsApi.assignUser(documentId, userId, role),
     onSuccess: handleSuccess,
     onError: (err: any) => {
-      setError(err.data?.error ?? 'Failed to assign user');
+      const message = err.data?.error ?? 'Failed to assign user';
+      setError(message);
+      toast.error(message);
     },
   });
 
@@ -87,7 +91,9 @@ export function DocumentAssignmentsModal({
     mutationFn: (role: DocumentRole) => projectsApi.claimRole(documentId, role),
     onSuccess: handleSuccess,
     onError: (err: any) => {
-      setError(err.data?.error ?? 'Failed to claim role');
+      const message = err.data?.error ?? 'Failed to claim role';
+      setError(message);
+      toast.error(message);
     },
   });
 
@@ -96,7 +102,9 @@ export function DocumentAssignmentsModal({
     mutationFn: (role: DocumentRole) => projectsApi.removeAssignment(documentId, role),
     onSuccess: handleSuccess,
     onError: (err: any) => {
-      setError(err.data?.error ?? 'Failed to remove assignment');
+      const message = err.data?.error ?? 'Failed to remove assignment';
+      setError(message);
+      toast.error(message);
     },
   });
 
@@ -150,31 +158,31 @@ export function DocumentAssignmentsModal({
                 return (
                   <div
                     key={role}
-                    className={`flex items-center justify-between p-3 border rounded-sm ${
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 border rounded-sm ${
                       isActive ? 'border-accent bg-accent/5' : 'border-border bg-surface-panel'
                     }`}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <span className={`text-sm font-medium ${isActive ? 'text-accent' : 'text-text'}`}>
                         {formatDocumentRole(role)}
                       </span>
                       {isActive && (
-                        <span className="px-1.5 py-0.5 text-xs font-medium bg-accent text-white rounded-sm">
+                        <span className="px-1.5 py-0.5 text-xs font-medium bg-accent text-white rounded-sm shrink-0">
                           Active
                         </span>
                       )}
                     </div>
 
                     {assignment ? (
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="text-sm text-text">{assignment.user.name}</div>
-                          <div className="text-xs text-text-muted">{assignment.user.email}</div>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="text-left sm:text-right min-w-0 flex-1">
+                          <div className="text-sm text-text truncate">{assignment.user.name}</div>
+                          <div className="text-xs text-text-muted truncate">{assignment.user.email}</div>
                         </div>
                         <button
                           onClick={() => removeMutation.mutate(role)}
                           disabled={removeMutation.isPending}
-                          className="p-1.5 text-text-muted hover:text-danger hover:bg-danger-bg rounded-sm disabled:opacity-50"
+                          className="p-1.5 text-text-muted hover:text-danger hover:bg-danger-bg rounded-sm disabled:opacity-50 shrink-0"
                           title="Remove assignment"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -205,11 +213,11 @@ export function DocumentAssignmentsModal({
             <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-3">
               Assign User
             </h3>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <select
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value as DocumentRole)}
-                className="px-2.5 py-2 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none rounded-sm"
+                className="w-full sm:w-auto px-2.5 py-2 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none rounded-sm"
               >
                 {relevantRoles.map((role) => (
                   <option key={role} value={role}>
@@ -221,7 +229,7 @@ export function DocumentAssignmentsModal({
               <select
                 value={selectedUserId}
                 onChange={(e) => setSelectedUserId(e.target.value)}
-                className="flex-1 px-2.5 py-2 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none rounded-sm"
+                className="w-full sm:flex-1 px-2.5 py-2 text-sm bg-surface border border-border text-text focus:border-accent focus:outline-none rounded-sm"
               >
                 <option value="">Select user...</option>
                 {members.map((member) => (
@@ -234,7 +242,7 @@ export function DocumentAssignmentsModal({
               <button
                 onClick={handleAssign}
                 disabled={!selectedUserId || assignMutation.isPending}
-                className="px-4 py-2 bg-accent text-white text-sm font-medium hover:bg-accent-hover rounded-sm disabled:opacity-50"
+                className="w-full sm:w-auto px-4 py-2 bg-accent text-white text-sm font-medium hover:bg-accent-hover rounded-sm disabled:opacity-50"
               >
                 Assign
               </button>

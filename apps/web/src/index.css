@@ -28,7 +28,7 @@
 }
 
 @layer components {
-  /* Compact form elements */
+  /* Compact form elements - with mobile touch-friendly overrides */
   .input-compact {
     @apply px-1.5 py-1 text-xs bg-surface border border-border focus:outline-none focus:ring-1 focus:ring-accent;
   }
@@ -52,5 +52,92 @@
 
   .btn-danger {
     @apply bg-danger text-text-inverse hover:bg-danger-hover focus:ring-danger;
+  }
+
+  /* Touch-friendly mobile buttons */
+  .btn-touch {
+    @apply min-h-touch min-w-touch px-4 py-3 text-sm;
+  }
+
+  /* Mobile drawer component */
+  .mobile-drawer {
+    @apply fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-white shadow-drawer;
+  }
+
+  .mobile-drawer-overlay {
+    @apply fixed inset-0 z-40 bg-black/40;
+  }
+
+  /* Bottom sheet component */
+  .bottom-sheet {
+    @apply fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-sheet;
+    max-height: 85vh;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .bottom-sheet-handle {
+    @apply w-10 h-1 mx-auto mt-2 mb-3 bg-border-dark rounded-full;
+  }
+
+  /* Safe area utilities */
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0);
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .safe-left {
+    padding-left: env(safe-area-inset-left, 0);
+  }
+
+  .safe-right {
+    padding-right: env(safe-area-inset-right, 0);
+  }
+
+  /* Floating action button */
+  .fab {
+    @apply fixed z-40 w-14 h-14 rounded-full bg-accent text-text-inverse shadow-lg flex items-center justify-center;
+    @apply active:scale-95 transition-transform;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0));
+  }
+}
+
+/* Mobile-specific styles */
+@media (max-width: 767px) {
+  /* Increase touch targets on mobile */
+  .input-compact {
+    @apply px-3 py-2.5 text-sm min-h-touch;
+  }
+
+  .btn-compact {
+    @apply px-3 py-2.5 text-xs min-h-touch;
+  }
+
+  /* Prevent text size adjustment on orientation change */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Better tap highlighting */
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: rgba(47, 111, 237, 0.1);
+  }
+
+  /* Prevent pull-to-refresh in app-like areas */
+  .no-overscroll {
+    overscroll-behavior: contain;
+  }
+
+  /* Hide scrollbars on mobile but keep scrolling */
+  .mobile-hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }

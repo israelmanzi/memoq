@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { commentsApi, type Comment } from '../api';
+import { useToastActions } from './Toast';
 
 interface CommentsPanelProps {
   segmentId: string;
@@ -14,6 +15,7 @@ interface CommentsPanelProps {
 
 export function CommentsPanel({ segmentId, documentId }: CommentsPanelProps) {
   const queryClient = useQueryClient();
+  const toast = useToastActions();
   const [newComment, setNewComment] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -38,6 +40,9 @@ export function CommentsPanel({ segmentId, documentId }: CommentsPanelProps) {
       setReplyingTo(null);
       setReplyText('');
     },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to add comment');
+    },
   });
 
   const updateMutation = useMutation({
@@ -48,6 +53,9 @@ export function CommentsPanel({ segmentId, documentId }: CommentsPanelProps) {
       setEditingId(null);
       setEditText('');
     },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to update comment');
+    },
   });
 
   const deleteMutation = useMutation({
@@ -55,6 +63,9 @@ export function CommentsPanel({ segmentId, documentId }: CommentsPanelProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', segmentId] });
       queryClient.invalidateQueries({ queryKey: ['comment-counts', documentId] });
+    },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to delete comment');
     },
   });
 
@@ -64,6 +75,9 @@ export function CommentsPanel({ segmentId, documentId }: CommentsPanelProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', segmentId] });
       queryClient.invalidateQueries({ queryKey: ['comment-counts', documentId] });
+    },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to resolve comment');
     },
   });
 

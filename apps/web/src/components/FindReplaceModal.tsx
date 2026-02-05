@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { projectsApi, type SegmentWithMatchInfo } from '../api';
+import { useToastActions } from './Toast';
 
 interface FindReplaceModalProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export function FindReplaceModal({
   onSegmentClick,
 }: FindReplaceModalProps) {
   const queryClient = useQueryClient();
+  const toast = useToastActions();
   const [findText, setFindText] = useState('');
   const [replaceText, setReplaceText] = useState('');
   const [searchIn, setSearchIn] = useState<'source' | 'target' | 'both'>('target');
@@ -132,9 +134,15 @@ export function FindReplaceModal({
 
       return projectsApi.updateSegmentsBulk(documentId, updates);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['segments', documentId] });
       findMatches(); // Re-run search to update matches
+      if (result && result.updated > 0) {
+        toast.success(`Replaced ${result.updated} occurrence${result.updated > 1 ? 's' : ''}`);
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err.data?.error || 'Failed to replace text');
     },
   });
 
