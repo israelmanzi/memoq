@@ -19,7 +19,7 @@ export function LeverageReport({ documentId, projectId, documentName }: Leverage
   const { data: analysis, isLoading, error, refetch } = useQuery({
     queryKey: ['leverage-analysis', documentId, projectId],
     queryFn: () => analyticsApi.analyzeLeverage(documentId, projectId),
-    enabled: false, // Only run when triggered
+    enabled: false,
   });
 
   const handleAnalyze = () => {
@@ -31,157 +31,147 @@ export function LeverageReport({ documentId, projectId, documentName }: Leverage
     return (
       <button
         onClick={handleAnalyze}
-        className="px-3 py-1.5 text-sm bg-primary text-white rounded hover:bg-primary-hover transition-colors"
+        className="inline-flex items-center gap-1 px-2 py-1 text-xs text-text-secondary hover:text-text hover:bg-surface-hover"
+        title="Analyze TM leverage"
       >
-        Analyze Leverage
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+        <span className="hidden sm:inline">Leverage</span>
       </button>
     );
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface-alt border border-border shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="border-b border-border px-6 py-4 flex items-center justify-between sticky top-0 bg-surface">
+        <div className="flex items-center justify-between px-3 py-2 bg-surface-panel border-b border-border">
           <div>
-            <h2 className="text-lg font-semibold text-text">Translation Memory Leverage Analysis</h2>
-            <p className="text-sm text-text-secondary mt-1">
+            <h2 className="text-sm font-medium text-text">TM Leverage Analysis</h2>
+            <p className="text-2xs text-text-muted">
               {documentName || analysis?.documentName || 'Document'}
             </p>
           </div>
           <button
             onClick={() => setIsOpen(false)}
-            className="text-text-secondary hover:text-text p-2 rounded hover:bg-surface-hover"
+            className="p-1 text-text-muted hover:text-text hover:bg-surface-hover"
           >
-            ✕
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="p-3">
           {isLoading && (
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-              <p className="mt-4 text-text-secondary">Analyzing TM matches...</p>
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin h-6 w-6 border-b-2 border-accent"></div>
+              <p className="mt-2 text-xs text-text-muted">Analyzing TM matches...</p>
             </div>
           )}
 
           {error && (
-            <div className="bg-danger-bg border border-danger text-danger rounded p-4">
-              <p className="font-medium">Analysis Failed</p>
-              <p className="text-sm mt-1">{(error as Error).message}</p>
+            <div className="p-2 bg-danger-bg border border-danger/20 text-xs text-danger">
+              Analysis failed: {(error as Error).message}
             </div>
           )}
 
           {analysis && (
-            <div className="space-y-6">
-              {/* Summary Stats */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-surface-panel rounded-lg p-4">
-                  <p className="text-text-secondary text-sm">Total Segments</p>
-                  <p className="text-2xl font-bold text-text mt-1">{analysis.totalSegments.toLocaleString()}</p>
+            <div className="space-y-4">
+              {/* Summary */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-surface-panel p-2 border border-border">
+                  <div className="text-2xs text-text-muted">Total Segments</div>
+                  <div className="text-lg font-medium text-text">{analysis.totalSegments.toLocaleString()}</div>
                 </div>
-                <div className="bg-surface-panel rounded-lg p-4">
-                  <p className="text-text-secondary text-sm">Total Words</p>
-                  <p className="text-2xl font-bold text-text mt-1">{analysis.totalWords.toLocaleString()}</p>
+                <div className="bg-surface-panel p-2 border border-border">
+                  <div className="text-2xs text-text-muted">Total Words</div>
+                  <div className="text-lg font-medium text-text">{analysis.totalWords.toLocaleString()}</div>
                 </div>
               </div>
 
               {/* Match Distribution */}
               <div>
-                <h3 className="font-semibold text-text mb-3">TM Match Distribution</h3>
-                <div className="space-y-2">
+                <div className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
+                  Match Distribution
+                </div>
+                <div className="space-y-1">
                   <MatchRow
-                    label="100% Matches (Exact)"
-                    color="bg-green-500"
+                    label="100% (Exact)"
+                    color="bg-success"
                     data={analysis.matchDistribution.exact}
-                    effortWords={analysis.estimatedEffort.exact}
                     effortPercent={0}
                   />
                   <MatchRow
-                    label="95-99% Matches (High Fuzzy)"
-                    color="bg-blue-500"
+                    label="95-99% (High)"
+                    color="bg-accent"
                     data={analysis.matchDistribution.fuzzyHigh}
-                    effortWords={analysis.estimatedEffort.fuzzyHigh}
                     effortPercent={25}
                   />
                   <MatchRow
-                    label="85-94% Matches (Mid Fuzzy)"
-                    color="bg-yellow-500"
+                    label="85-94% (Mid)"
+                    color="bg-warning"
                     data={analysis.matchDistribution.fuzzyMid}
-                    effortWords={analysis.estimatedEffort.fuzzyMid}
                     effortPercent={50}
                   />
                   <MatchRow
-                    label="75-84% Matches (Low Fuzzy)"
-                    color="bg-orange-500"
+                    label="75-84% (Low)"
+                    color="bg-warning"
                     data={analysis.matchDistribution.fuzzyLow}
-                    effortWords={analysis.estimatedEffort.fuzzyLow}
                     effortPercent={75}
                   />
                   <MatchRow
-                    label="<75% Matches (No Match)"
-                    color="bg-red-500"
+                    label="<75% (No match)"
+                    color="bg-danger"
                     data={analysis.matchDistribution.noMatch}
-                    effortWords={analysis.estimatedEffort.noMatch}
                     effortPercent={100}
                   />
                   <MatchRow
-                    label="Repetitions (Internal Duplicates)"
-                    color="bg-purple-500"
+                    label="Repetitions"
+                    color="bg-accent-muted"
                     data={analysis.matchDistribution.repetitions}
-                    effortWords={analysis.estimatedEffort.repetitions}
                     effortPercent={10}
                   />
                 </div>
               </div>
 
               {/* Estimated Effort */}
-              <div className="bg-surface-panel rounded-lg p-4">
-                <h3 className="font-semibold text-text mb-2">Estimated Translation Effort</h3>
+              <div className="bg-surface-panel p-3 border border-border">
+                <div className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
+                  Estimated Effort
+                </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold text-primary">
+                  <span className="text-xl font-bold text-accent">
                     {analysis.estimatedEffort.totalWeightedWords.toLocaleString()}
                   </span>
-                  <span className="text-text-secondary">weighted words</span>
+                  <span className="text-xs text-text-muted">weighted words</span>
                 </div>
-                <p className="text-sm text-text-secondary mt-2">
-                  Industry standard weights: 100%=0%, 95-99%=25%, 85-94%=50%, 75-84%=75%, &lt;75%=100%, Reps=10%
-                </p>
-                <div className="mt-3 pt-3 border-t border-border">
-                  <p className="text-sm text-text-secondary">
-                    <strong>TM Leverage:</strong>{' '}
-                    {(
-                      ((analysis.totalWords - analysis.estimatedEffort.totalWeightedWords) /
-                        analysis.totalWords) *
-                      100
-                    ).toFixed(1)}
-                    % savings from translation memory
-                  </p>
+                <div className="mt-2 pt-2 border-t border-border-light">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-text-muted">TM Leverage</span>
+                    <span className="font-medium text-success">
+                      {(((analysis.totalWords - analysis.estimatedEffort.totalWeightedWords) / analysis.totalWords) * 100).toFixed(1)}% savings
+                    </span>
+                  </div>
                 </div>
               </div>
 
               {/* Legend */}
-              <div className="text-xs text-text-secondary bg-surface-panel rounded p-3">
-                <p className="font-medium text-text mb-1">How to interpret:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li><strong>100% matches:</strong> Exact matches from TM - can be auto-filled</li>
-                  <li><strong>95-99% matches:</strong> Minor differences - quick edits needed</li>
-                  <li><strong>85-94% matches:</strong> Moderate differences - partial translation</li>
-                  <li><strong>75-84% matches:</strong> Significant differences - mostly manual work</li>
-                  <li><strong>&lt;75% matches:</strong> New content - full translation required</li>
-                  <li><strong>Repetitions:</strong> Duplicate segments within document - translate once, reuse</li>
-                </ul>
+              <div className="text-2xs text-text-muted bg-surface-panel p-2 border border-border">
+                <span className="font-medium text-text-secondary">Effort weights: </span>
+                100%=0%, 95-99%=25%, 85-94%=50%, 75-84%=75%, &lt;75%=100%, Reps=10%
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="border-t border-border px-6 py-4 flex justify-end gap-3">
+        <div className="flex justify-end gap-2 px-3 py-2 border-t border-border bg-surface-panel">
           <button
             onClick={() => setIsOpen(false)}
-            className="px-4 py-2 text-sm text-text-secondary hover:text-text rounded hover:bg-surface-hover transition-colors"
+            className="px-3 py-1.5 text-xs text-text-secondary hover:text-text hover:bg-surface-hover"
           >
             Close
           </button>
@@ -195,45 +185,30 @@ interface MatchRowProps {
   label: string;
   color: string;
   data: { count: number; words: number; percentage: number };
-  effortWords: number;
   effortPercent: number;
 }
 
-function MatchRow({ label, color, data, effortWords, effortPercent }: MatchRowProps) {
+function MatchRow({ label, color, data, effortPercent }: MatchRowProps) {
+  if (data.count === 0) return null;
+
   return (
-    <div className="bg-surface-panel rounded p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <div className={`w-3 h-3 rounded ${color}`}></div>
-          <span className="text-sm font-medium text-text">{label}</span>
+    <div className="flex items-center gap-2 py-1 border-b border-border-light last:border-0">
+      <div className={`w-2 h-2 ${color}`}></div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-text">{label}</span>
+          <span className="text-text-muted">{data.percentage}%</span>
         </div>
-        <span className="text-xs text-text-secondary">
-          {data.percentage}% of segments
-        </span>
-      </div>
-
-      <div className="grid grid-cols-3 gap-4 text-sm">
-        <div>
-          <p className="text-text-secondary text-xs">Segments</p>
-          <p className="font-medium text-text">{data.count.toLocaleString()}</p>
-        </div>
-        <div>
-          <p className="text-text-secondary text-xs">Words</p>
-          <p className="font-medium text-text">{data.words.toLocaleString()}</p>
-        </div>
-        <div>
-          <p className="text-text-secondary text-xs">Effort ({effortPercent}%)</p>
-          <p className="font-medium text-text">{effortWords.toLocaleString()}</p>
+        <div className="flex items-center gap-3 text-2xs text-text-muted">
+          <span>{data.count} seg</span>
+          <span>{data.words.toLocaleString()} words</span>
+          <span className="text-text-secondary">{effortPercent}% effort</span>
         </div>
       </div>
-
-      {/* Visual bar */}
+      {/* Mini bar */}
       {data.percentage > 0 && (
-        <div className="mt-2 h-2 bg-surface rounded-full overflow-hidden">
-          <div
-            className={`h-full ${color} transition-all duration-500`}
-            style={{ width: `${data.percentage}%` }}
-          ></div>
+        <div className="w-16 h-1 bg-surface overflow-hidden">
+          <div className={`h-full ${color}`} style={{ width: `${data.percentage}%` }}></div>
         </div>
       )}
     </div>

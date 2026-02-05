@@ -8,13 +8,21 @@ import {
   db,
   documents,
   segments,
-  segmentHistory,
   projectResources,
   users,
   segmentComments,
+  projectMembers,
+  orgMemberships,
 } from '../db/index.js';
 import { listDocumentSegments, findProjectById } from './project.service.js';
 import { findMatches } from './tm.service.js';
+
+// Helper to format role for display
+function formatRole(role: string): string {
+  return role
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 // ============ Types ============
 
@@ -108,7 +116,9 @@ export interface DocumentAnalytics {
   targetWords: number;
   completionPercentage: number;
   averageMatchPercentage: number;
-  mtUsageCount: number;
+  tmMatchCount: number;
+  aiTranslationCount: number;
+  mtUsageCount: number; // Kept for backward compatibility
   qaIssueCount: number;
   commentCount: number;
   timeSpent: number | null; // in minutes
@@ -167,7 +177,7 @@ export async function analyzeLeverage(
     .where(
       and(
         eq(projectResources.projectId, projectId),
-        eq(projectResources.resourceType, 'translation_memory')
+        eq(projectResources.resourceType, 'tm')
       )
     );
 
@@ -297,29 +307,69 @@ export async function getProjectStatistics(projectId: string): Promise<ProjectSt
     .from(documents)
     .where(and(eq(documents.projectId, projectId)));
 
-  // Get all segments
+  // Get all segments for documents in this project
+  const docIds = projectDocs.map((d) => d.id);
+
+  // Handle empty project case
+  if (docIds.length === 0) {
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      sourceLanguage: project.sourceLanguage,
+      targetLanguage: project.targetLanguage,
+      totalDocuments: 0,
+      totalSegments: 0,
+      totalSourceWords: 0,
+      totalTargetWords: 0,
+      segmentsByStatus: {
+        untranslated: 0,
+        draft: 0,
+        translated: 0,
+        reviewed1: 0,
+        reviewed2: 0,
+        locked: 0,
+      },
+      progressPercentage: {
+        translation: 0,
+        review1: 0,
+        review2: 0,
+        complete: 0,
+      },
+      qualityMetrics: {
+        totalQAIssues: 0,
+        totalComments: 0,
+        unresolvedComments: 0,
+      },
+      timeline: {
+        createdAt: project.createdAt,
+        deadline: project.deadline ? new Date(project.deadline) : null,
+        daysRemaining: project.deadline
+          ? Math.ceil((new Date(project.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+          : null,
+        isOverdue: project.deadline
+          ? Math.ceil((new Date(project.deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) < 0
+          : false,
+      },
+    };
+  }
+
   const allSegments = await db
     .select()
     .from(segments)
-    .where(
-      and(
-        inArray(documents.id, projectDocs.map((d) => d.id)),
-        eq(segments.documentId, documents.id)
-      )
-    )
-    .innerJoin(documents, eq(segments.documentId, documents.id));
+    .innerJoin(documents, eq(segments.documentId, documents.id))
+    .where(inArray(segments.documentId, docIds));
 
   const totalSegments = allSegments.length;
   let totalSourceWords = 0;
   let totalTargetWords = 0;
 
-  // Count segments by status
-  const segmentsByStatus = {
+  // Count segments by status (use underscore keys to match actual status values)
+  const segmentsByStatusInternal: Record<string, number> = {
     untranslated: 0,
     draft: 0,
     translated: 0,
-    reviewed1: 0,
-    reviewed2: 0,
+    reviewed_1: 0,
+    reviewed_2: 0,
     locked: 0,
   };
 
@@ -329,8 +379,21 @@ export async function getProjectStatistics(projectId: string): Promise<ProjectSt
     totalSourceWords += sourceWords;
     totalTargetWords += targetWords;
 
-    segmentsByStatus[segment.status as keyof typeof segmentsByStatus]++;
+    const status = segment.status ?? 'untranslated';
+    if (status in segmentsByStatusInternal && segmentsByStatusInternal[status] !== undefined) {
+      segmentsByStatusInternal[status] = segmentsByStatusInternal[status] + 1;
+    }
   }
+
+  // Map to API response format (without underscores for cleaner JSON keys)
+  const segmentsByStatus = {
+    untranslated: segmentsByStatusInternal.untranslated ?? 0,
+    draft: segmentsByStatusInternal.draft ?? 0,
+    translated: segmentsByStatusInternal.translated ?? 0,
+    reviewed1: segmentsByStatusInternal.reviewed_1 ?? 0,
+    reviewed2: segmentsByStatusInternal.reviewed_2 ?? 0,
+    locked: segmentsByStatusInternal.locked ?? 0,
+  };
 
   // Calculate progress percentages
   const translatedCount =
@@ -353,18 +416,18 @@ export async function getProjectStatistics(projectId: string): Promise<ProjectSt
   };
 
   // Get quality metrics (comments)
-  const [commentStats] = await db
-    .select({
-      totalComments: sql<number>`count(*)::int`,
-      unresolvedComments: sql<number>`count(*) filter (where ${segmentComments.resolved} = false)::int`,
-    })
-    .from(segmentComments)
-    .where(
-      inArray(
-        segmentComments.segmentId,
-        allSegments.map((s) => s.segments.id)
-      )
-    );
+  const segmentIds = allSegments.map((s) => s.segments.id);
+  let commentStats: { totalComments: number; unresolvedComments: number } | undefined;
+
+  if (segmentIds.length > 0) {
+    [commentStats] = await db
+      .select({
+        totalComments: sql<number>`count(*)::int`,
+        unresolvedComments: sql<number>`count(*) filter (where ${segmentComments.resolved} = false)::int`,
+      })
+      .from(segmentComments)
+      .where(inArray(segmentComments.segmentId, segmentIds));
+  }
 
   // Calculate timeline
   const now = new Date();
@@ -423,58 +486,84 @@ export async function getUserProductivity(
 
   const docIds = projectDocs.map((d) => d.id);
 
-  // Build date filter
-  const dateFilters = [];
-  if (startDate) {
-    dateFilters.push(gte(segmentHistory.changedAt, startDate));
-  }
-  if (endDate) {
-    dateFilters.push(lte(segmentHistory.changedAt, endDate));
+  // If no documents, return empty productivity
+  if (docIds.length === 0) {
+    return {
+      userId: user.id,
+      userName: user.name,
+      userEmail: user.email,
+      role: 'Member',
+      statistics: {
+        segmentsTranslated: 0,
+        wordsTranslated: 0,
+        segmentsReviewed: 0,
+        wordsReviewed: 0,
+        commentsAdded: 0,
+        avgTimePerSegment: null,
+        mostActiveDay: null,
+        lastActivity: null,
+      },
+      productivity: {
+        wordsPerDay: 0,
+        segmentsPerDay: 0,
+        activeDays: 0,
+      },
+    };
   }
 
-  // Get segment history for this user
-  const history = await db
+  // Query segments directly using translatedBy/reviewedBy fields (not segmentHistory which may be empty)
+  // Get segments translated by this user
+  const translatedSegments = await db
     .select()
-    .from(segmentHistory)
-    .innerJoin(segments, eq(segmentHistory.segmentId, segments.id))
+    .from(segments)
     .where(
       and(
-        eq(segmentHistory.changedBy, userId),
+        eq(segments.translatedBy, userId),
         inArray(segments.documentId, docIds),
-        ...dateFilters
+        ...(startDate ? [gte(segments.translatedAt, startDate)] : []),
+        ...(endDate ? [lte(segments.translatedAt, endDate)] : [])
       )
-    )
-    .orderBy(asc(segmentHistory.changedAt));
+    );
+
+  // Get segments reviewed by this user
+  const reviewedSegments = await db
+    .select()
+    .from(segments)
+    .where(
+      and(
+        eq(segments.reviewedBy, userId),
+        inArray(segments.documentId, docIds),
+        ...(startDate ? [gte(segments.reviewedAt, startDate)] : []),
+        ...(endDate ? [lte(segments.reviewedAt, endDate)] : [])
+      )
+    );
 
   // Calculate statistics
-  let segmentsTranslated = 0;
+  let segmentsTranslated = translatedSegments.length;
   let wordsTranslated = 0;
-  let segmentsReviewed = 0;
+  let segmentsReviewed = reviewedSegments.length;
   let wordsReviewed = 0;
 
-  const seenSegments = new Set<string>();
   const dailyActivity = new Map<string, number>();
 
-  for (const entry of history) {
-    const segment = entry.segments;
-    const hist = entry.segment_history;
-
-    // Count unique segments
-    if (!seenSegments.has(segment.id)) {
-      seenSegments.add(segment.id);
-
-      if (hist.status === 'translated') {
-        segmentsTranslated++;
-        wordsTranslated += hist.targetText ? hist.targetText.split(/\s+/).filter(Boolean).length : 0;
-      } else if (hist.status === 'reviewed_1' || hist.status === 'reviewed_2') {
-        segmentsReviewed++;
-        wordsReviewed += hist.targetText ? hist.targetText.split(/\s+/).filter(Boolean).length : 0;
-      }
-    }
+  for (const segment of translatedSegments) {
+    wordsTranslated += segment.targetText ? segment.targetText.split(/\s+/).filter(Boolean).length : 0;
 
     // Track daily activity
-    if (hist.changedAt) {
-      const dateKey = hist.changedAt.toISOString().split('T')[0] || '';
+    if (segment.translatedAt) {
+      const dateKey = segment.translatedAt.toISOString().split('T')[0] || '';
+      if (dateKey) {
+        dailyActivity.set(dateKey, (dailyActivity.get(dateKey) || 0) + 1);
+      }
+    }
+  }
+
+  for (const segment of reviewedSegments) {
+    wordsReviewed += segment.targetText ? segment.targetText.split(/\s+/).filter(Boolean).length : 0;
+
+    // Track daily activity
+    if (segment.reviewedAt) {
+      const dateKey = segment.reviewedAt.toISOString().split('T')[0] || '';
       if (dateKey) {
         dailyActivity.set(dateKey, (dailyActivity.get(dateKey) || 0) + 1);
       }
@@ -508,14 +597,50 @@ export async function getUserProductivity(
   const wordsPerDay = activeDays > 0 ? Math.round(wordsTranslated / activeDays) : 0;
   const segmentsPerDay = activeDays > 0 ? Math.round(segmentsTranslated / activeDays) : 0;
 
-  // Get last activity
-  const lastActivity: Date | null = history.length > 0 ? (history[history.length - 1]?.segment_history?.changedAt || null) : null;
+  // Get last activity (most recent translatedAt or reviewedAt)
+  let lastActivity: Date | null = null;
+  for (const segment of translatedSegments) {
+    if (segment.translatedAt && (!lastActivity || segment.translatedAt > lastActivity)) {
+      lastActivity = segment.translatedAt;
+    }
+  }
+  for (const segment of reviewedSegments) {
+    if (segment.reviewedAt && (!lastActivity || segment.reviewedAt > lastActivity)) {
+      lastActivity = segment.reviewedAt;
+    }
+  }
+
+  // Get user's role from project membership or org membership
+  const project = await findProjectById(projectId);
+  let role = 'Member';
+
+  if (project) {
+    // Check project membership first
+    const [projectMember] = await db
+      .select({ role: projectMembers.role })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+
+    if (projectMember) {
+      role = formatRole(projectMember.role);
+    } else {
+      // Fall back to org membership
+      const [orgMember] = await db
+        .select({ role: orgMemberships.role })
+        .from(orgMemberships)
+        .where(and(eq(orgMemberships.orgId, project.orgId), eq(orgMemberships.userId, userId)));
+
+      if (orgMember) {
+        role = formatRole(orgMember.role);
+      }
+    }
+  }
 
   return {
     userId: user.id,
     userName: user.name,
     userEmail: user.email,
-    role: 'translator', // TODO: Get actual role from project membership
+    role,
     statistics: {
       segmentsTranslated,
       wordsTranslated,
@@ -572,22 +697,94 @@ export async function getDocumentAnalytics(documentId: string): Promise<Document
       )
     );
 
-  // Get contributors from segment history
-  const contributors = await db
+  // Get contributors from segments (translatedBy and reviewedBy fields)
+  const segmentIds = segmentsList.map((s) => s.id);
+
+  // Get unique contributors (translators)
+  const translatorContributions = segmentIds.length > 0 ? await db
     .select({
       userId: users.id,
       userName: users.name,
-      segmentCount: sql<number>`count(distinct ${segmentHistory.segmentId})::int`,
+      segmentCount: sql<number>`count(*)::int`,
     })
-    .from(segmentHistory)
-    .innerJoin(users, eq(segmentHistory.changedBy, users.id))
-    .where(
-      inArray(
-        segmentHistory.segmentId,
-        segmentsList.map((s) => s.id)
-      )
-    )
-    .groupBy(users.id, users.name);
+    .from(segments)
+    .innerJoin(users, eq(segments.translatedBy, users.id))
+    .where(inArray(segments.id, segmentIds))
+    .groupBy(users.id, users.name) : [];
+
+  // Get unique contributors (reviewers)
+  const reviewerContributions = segmentIds.length > 0 ? await db
+    .select({
+      userId: users.id,
+      userName: users.name,
+      segmentCount: sql<number>`count(*)::int`,
+    })
+    .from(segments)
+    .innerJoin(users, eq(segments.reviewedBy, users.id))
+    .where(inArray(segments.id, segmentIds))
+    .groupBy(users.id, users.name) : [];
+
+  // Merge contributions from both sources
+  const contributorMap = new Map<string, { userId: string; userName: string; segmentCount: number }>();
+  for (const c of translatorContributions) {
+    contributorMap.set(c.userId, { userId: c.userId, userName: c.userName, segmentCount: c.segmentCount });
+  }
+  for (const c of reviewerContributions) {
+    const existing = contributorMap.get(c.userId);
+    if (existing) {
+      existing.segmentCount += c.segmentCount;
+    } else {
+      contributorMap.set(c.userId, { userId: c.userId, userName: c.userName, segmentCount: c.segmentCount });
+    }
+  }
+  const contributors = Array.from(contributorMap.values());
+
+  // Calculate match statistics from tracked data
+  const segmentsWithTmMatch = segmentsList.filter((s) => s.matchSource === 'tm' && s.matchPercent);
+  const segmentsWithAiTranslation = segmentsList.filter((s) => s.matchSource === 'ai');
+
+  const averageMatchPercentage = segmentsWithTmMatch.length > 0
+    ? Math.round(segmentsWithTmMatch.reduce((sum, s) => sum + (s.matchPercent || 0), 0) / segmentsWithTmMatch.length)
+    : 0;
+
+  // Get project info for role lookup
+  const project = await findProjectById(doc.projectId);
+
+  // Get roles for all contributors
+  const contributorsWithRoles = await Promise.all(
+    contributors.map(async (c) => {
+      let role = 'Contributor';
+
+      if (project) {
+        // Check project membership first
+        const [projectMember] = await db
+          .select({ role: projectMembers.role })
+          .from(projectMembers)
+          .where(and(eq(projectMembers.projectId, doc.projectId), eq(projectMembers.userId, c.userId)));
+
+        if (projectMember) {
+          role = formatRole(projectMember.role);
+        } else {
+          // Fall back to org membership
+          const [orgMember] = await db
+            .select({ role: orgMemberships.role })
+            .from(orgMemberships)
+            .where(and(eq(orgMemberships.orgId, project.orgId), eq(orgMemberships.userId, c.userId)));
+
+          if (orgMember) {
+            role = formatRole(orgMember.role);
+          }
+        }
+      }
+
+      return {
+        userId: c.userId,
+        userName: c.userName,
+        role,
+        segmentsContributed: c.segmentCount,
+      };
+    })
+  );
 
   return {
     documentId: doc.id,
@@ -596,17 +793,14 @@ export async function getDocumentAnalytics(documentId: string): Promise<Document
     sourceWords,
     targetWords,
     completionPercentage,
-    averageMatchPercentage: 0, // TODO: Calculate from TM matches
-    mtUsageCount: 0, // TODO: Track MT usage
+    averageMatchPercentage,
+    tmMatchCount: segmentsWithTmMatch.length,
+    aiTranslationCount: segmentsWithAiTranslation.length,
+    mtUsageCount: segmentsWithAiTranslation.length, // Keep for backward compatibility
     qaIssueCount: 0, // TODO: Track QA issues
     commentCount: commentStats?.count ?? 0,
     timeSpent: null, // TODO: Calculate from segment history timestamps
-    contributors: contributors.map((c) => ({
-      userId: c.userId,
-      userName: c.userName,
-      role: 'contributor', // TODO: Get actual role
-      segmentsContributed: c.segmentCount,
-    })),
+    contributors: contributorsWithRoles,
   };
 }
 
@@ -627,27 +821,62 @@ export async function getProjectTimeline(
 
   const docIds = projectDocs.map((d) => d.id);
 
-  const dateFilters = [];
-  if (startDate) {
-    dateFilters.push(gte(segmentHistory.changedAt, startDate));
-  }
-  if (endDate) {
-    dateFilters.push(lte(segmentHistory.changedAt, endDate));
+  if (docIds.length === 0) {
+    return [];
   }
 
-  // Get daily activity
-  const timeline = await db
+  // Build date filters for segments
+  const translatedDateFilters = [];
+  const reviewedDateFilters = [];
+  const commentDateFilters = [];
+
+  if (startDate) {
+    translatedDateFilters.push(gte(segments.translatedAt, startDate));
+    reviewedDateFilters.push(gte(segments.reviewedAt, startDate));
+    commentDateFilters.push(gte(segmentComments.createdAt, startDate));
+  }
+  if (endDate) {
+    translatedDateFilters.push(lte(segments.translatedAt, endDate));
+    reviewedDateFilters.push(lte(segments.reviewedAt, endDate));
+    commentDateFilters.push(lte(segmentComments.createdAt, endDate));
+  }
+
+  // Get daily translation activity
+  const translationTimeline = await db
     .select({
-      date: sql<string>`date(${segmentHistory.changedAt})`,
-      segmentsCompleted: sql<number>`count(distinct ${segmentHistory.segmentId})::int`,
-      wordsTranslated: sql<number>`sum(length(${segmentHistory.targetText}) - length(trim(${segmentHistory.targetText})) + 1)::int`,
-      activeUsers: sql<number>`count(distinct ${segmentHistory.changedBy})::int`,
+      date: sql<string>`date(${segments.translatedAt})`,
+      segmentsCompleted: sql<number>`count(*)::int`,
+      wordsTranslated: sql<number>`coalesce(sum(array_length(regexp_split_to_array(${segments.targetText}, '\\s+'), 1)), 0)::int`,
+      activeUsers: sql<number>`count(distinct ${segments.translatedBy})::int`,
     })
-    .from(segmentHistory)
-    .innerJoin(segments, eq(segmentHistory.segmentId, segments.id))
-    .where(and(inArray(segments.documentId, docIds), ...dateFilters))
-    .groupBy(sql`date(${segmentHistory.changedAt})`)
-    .orderBy(asc(sql`date(${segmentHistory.changedAt})`));
+    .from(segments)
+    .where(
+      and(
+        inArray(segments.documentId, docIds),
+        sql`${segments.translatedAt} is not null`,
+        ...translatedDateFilters
+      )
+    )
+    .groupBy(sql`date(${segments.translatedAt})`)
+    .orderBy(asc(sql`date(${segments.translatedAt})`));
+
+  // Get daily review activity
+  const reviewTimeline = await db
+    .select({
+      date: sql<string>`date(${segments.reviewedAt})`,
+      segmentsReviewed: sql<number>`count(*)::int`,
+      activeUsers: sql<number>`count(distinct ${segments.reviewedBy})::int`,
+    })
+    .from(segments)
+    .where(
+      and(
+        inArray(segments.documentId, docIds),
+        sql`${segments.reviewedAt} is not null`,
+        ...reviewedDateFilters
+      )
+    )
+    .groupBy(sql`date(${segments.reviewedAt})`)
+    .orderBy(asc(sql`date(${segments.reviewedAt})`));
 
   // Get daily comment counts
   const commentTimeline = await db
@@ -660,24 +889,63 @@ export async function getProjectTimeline(
     .where(
       and(
         inArray(segments.documentId, docIds),
-        ...dateFilters.map((f) =>
-          f.toString().includes('segment_history')
-            ? sql`date(${segmentComments.createdAt}) ${f.toString().split('segment_history.created_at')[1]}`
-            : f
-        )
+        ...commentDateFilters
       )
     )
     .groupBy(sql`date(${segmentComments.createdAt})`)
     .orderBy(asc(sql`date(${segmentComments.createdAt})`));
 
-  // Merge timelines
-  const commentMap = new Map(commentTimeline.map((c) => [c.date, c.commentsAdded]));
+  // Merge all timelines into a single view
+  const timelineMap = new Map<string, ProjectTimeline>();
 
-  return timeline.map((t) => ({
-    date: t.date,
-    segmentsCompleted: t.segmentsCompleted,
-    wordsTranslated: t.wordsTranslated || 0,
-    commentsAdded: commentMap.get(t.date) || 0,
-    activeUsers: t.activeUsers,
-  }));
+  for (const t of translationTimeline) {
+    if (t.date) {
+      timelineMap.set(t.date, {
+        date: t.date,
+        segmentsCompleted: t.segmentsCompleted,
+        wordsTranslated: t.wordsTranslated || 0,
+        commentsAdded: 0,
+        activeUsers: t.activeUsers,
+      });
+    }
+  }
+
+  for (const r of reviewTimeline) {
+    if (r.date) {
+      const existing = timelineMap.get(r.date);
+      if (existing) {
+        existing.segmentsCompleted += r.segmentsReviewed;
+        // Combine unique active users (approximation)
+        existing.activeUsers = Math.max(existing.activeUsers, r.activeUsers);
+      } else {
+        timelineMap.set(r.date, {
+          date: r.date,
+          segmentsCompleted: r.segmentsReviewed,
+          wordsTranslated: 0,
+          commentsAdded: 0,
+          activeUsers: r.activeUsers,
+        });
+      }
+    }
+  }
+
+  for (const c of commentTimeline) {
+    if (c.date) {
+      const existing = timelineMap.get(c.date);
+      if (existing) {
+        existing.commentsAdded = c.commentsAdded;
+      } else {
+        timelineMap.set(c.date, {
+          date: c.date,
+          segmentsCompleted: 0,
+          wordsTranslated: 0,
+          commentsAdded: c.commentsAdded,
+          activeUsers: 1,
+        });
+      }
+    }
+  }
+
+  // Sort by date and return
+  return Array.from(timelineMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 }

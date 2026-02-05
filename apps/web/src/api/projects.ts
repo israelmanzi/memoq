@@ -365,7 +365,7 @@ export const projectsApi = {
   updateSegment: (
     documentId: string,
     segmentId: string,
-    data: { targetText: string; status?: SegmentStatus; confirm?: boolean; propagate?: boolean }
+    data: { targetText: string; status?: SegmentStatus; confirm?: boolean; propagate?: boolean; matchSource?: 'tm' | 'ai' | 'manual' }
   ) => api.patch<Segment & { propagation?: { propagatedCount: number; segmentIds: string[] } }>(
     `/documents/${documentId}/segments/${segmentId}`,
     data

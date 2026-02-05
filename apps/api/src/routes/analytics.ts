@@ -46,7 +46,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Project not found' });
     }
 
-    const membership = await getMembership(request.user.userId, project.orgId);
+    const membership = await getMembership(project.orgId, request.user.userId);
     if (!membership) {
       return reply.code(403).send({ error: 'Access denied' });
     }
@@ -78,7 +78,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Project not found' });
     }
 
-    const membership = await getMembership(request.user.userId, project.orgId);
+    const membership = await getMembership(project.orgId, request.user.userId);
     if (!membership) {
       return reply.code(403).send({ error: 'Access denied' });
     }
@@ -114,7 +114,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Project not found' });
     }
 
-    const membership = await getMembership(request.user.userId, project.orgId);
+    const membership = await getMembership(project.orgId, request.user.userId);
     if (!membership) {
       return reply.code(403).send({ error: 'Access denied' });
     }
@@ -145,7 +145,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Project not found' });
     }
 
-    const membership = await getMembership(request.user.userId, project.orgId);
+    const membership = await getMembership(project.orgId, request.user.userId);
     if (!membership) {
       return reply.code(403).send({ error: 'Access denied' });
     }
@@ -178,7 +178,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Project not found' });
     }
 
-    const membership = await getMembership(request.user.userId, project.orgId);
+    const membership = await getMembership(project.orgId, request.user.userId);
     if (!membership) {
       return reply.code(403).send({ error: 'Access denied' });
     }
@@ -204,35 +204,85 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Project not found' });
     }
 
-    const membership = await getMembership(request.user.userId, project.orgId);
+    const membership = await getMembership(project.orgId, request.user.userId);
     if (!membership) {
       return reply.code(403).send({ error: 'Access denied' });
     }
 
     try {
-      // Get all project members
-      const { db, projectMembers } = await import('../db/index.js');
-      const { eq } = await import('drizzle-orm');
+      const { db, projectMembers, documentAssignments, documents, segments } = await import('../db/index.js');
+      const { eq, inArray } = await import('drizzle-orm');
 
+      // Get all documents in this project
+      const projectDocs = await db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(eq(documents.projectId, projectId));
+
+      const docIds = projectDocs.map((d) => d.id);
+
+      // Collect unique user IDs from multiple sources
+      const userIds = new Set<string>();
+
+      // 1. Project members
       const members = await db
-        .select()
+        .select({ userId: projectMembers.userId })
         .from(projectMembers)
         .where(eq(projectMembers.projectId, projectId));
 
-      // Get productivity for each member
+      members.forEach((m) => userIds.add(m.userId));
+
+      // 2. Document assignments (if there are documents)
+      if (docIds.length > 0) {
+        const assignments = await db
+          .select({ userId: documentAssignments.userId })
+          .from(documentAssignments)
+          .where(inArray(documentAssignments.documentId, docIds));
+
+        assignments.forEach((a) => userIds.add(a.userId));
+
+        // 3. Actual contributors (people who translated or reviewed segments)
+        const translators = await db
+          .select({ userId: segments.translatedBy })
+          .from(segments)
+          .where(inArray(segments.documentId, docIds))
+          .groupBy(segments.translatedBy);
+
+        translators.forEach((t) => {
+          if (t.userId) userIds.add(t.userId);
+        });
+
+        const reviewers = await db
+          .select({ userId: segments.reviewedBy })
+          .from(segments)
+          .where(inArray(segments.documentId, docIds))
+          .groupBy(segments.reviewedBy);
+
+        reviewers.forEach((r) => {
+          if (r.userId) userIds.add(r.userId);
+        });
+      }
+
+      // Get productivity for each unique user
       const teamProductivity = await Promise.all(
-        members.map(async (member) => {
+        Array.from(userIds).map(async (userId) => {
           try {
-            return await getUserProductivity(member.userId, projectId);
+            return await getUserProductivity(userId, projectId);
           } catch (error) {
-            console.warn(`Failed to get productivity for user ${member.userId}:`, error);
+            console.warn(`Failed to get productivity for user ${userId}:`, error);
             return null;
           }
         })
       );
 
-      // Filter out null results
-      const validResults = teamProductivity.filter((p) => p !== null);
+      // Filter out null results and sort by total contributions
+      const validResults = teamProductivity
+        .filter((p) => p !== null)
+        .sort((a, b) => {
+          const aTotal = (a?.statistics.segmentsTranslated ?? 0) + (a?.statistics.segmentsReviewed ?? 0);
+          const bTotal = (b?.statistics.segmentsTranslated ?? 0) + (b?.statistics.segmentsReviewed ?? 0);
+          return bTotal - aTotal;
+        });
 
       return reply.send(validResults);
     } catch (error) {

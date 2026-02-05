@@ -134,7 +134,7 @@ export function QAPanel({ documentId, segmentId, onSegmentClick }: QAPanelProps)
             {showAll && (
               <div className="max-h-48 overflow-y-auto">
                 {documentResult.results
-                  .filter(r => !r.passed)
+                  .filter(r => r.issues.length > 0)
                   .map((result) => (
                     <button
                       key={result.segmentId}

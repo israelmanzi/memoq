@@ -163,6 +163,9 @@ export interface Segment {
   translatedAt: Date | null;
   reviewedBy: string | null;
   reviewedAt: Date | null;
+  // Translation source tracking
+  matchSource: 'tm' | 'ai' | 'manual' | null; // How the translation was created
+  matchPercent: number | null; // TM match percentage (0-100)
   createdAt: Date;
   updatedAt: Date;
   // Optional user names (populated when fetching single segment)

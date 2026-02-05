@@ -111,7 +111,9 @@ export interface DocumentAnalytics {
   targetWords: number;
   completionPercentage: number;
   averageMatchPercentage: number;
-  mtUsageCount: number;
+  tmMatchCount?: number; // Segments with TM matches
+  aiTranslationCount?: number; // Segments translated by AI
+  mtUsageCount: number; // Legacy field, kept for compatibility
   qaIssueCount: number;
   commentCount: number;
   timeSpent: number | null;
