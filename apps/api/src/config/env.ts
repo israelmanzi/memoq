@@ -55,7 +55,7 @@ const envSchema = z.object({
   // Machine Translation (DeepL)
   DEEPL_API_KEY: z.string().optional(), // DeepL API key (prefix with "free:" for free API)
   // Rate Limiting
-  RATE_LIMIT_MAX: z.coerce.number().default(100),
+  RATE_LIMIT_MAX: z.coerce.number().default(1000),
   RATE_LIMIT_WINDOW: z.coerce.number().default(60000), // 1 minute in ms
   // Cache TTLs (in seconds)
   CACHE_TM_MATCH_TTL: z.coerce.number().default(3600), // 1 hour

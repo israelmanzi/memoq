@@ -407,6 +407,9 @@ export const segments = pgTable(
     // Translation tracking
     translatedBy: uuid('translated_by').references(() => users.id, { onDelete: 'set null' }),
     translatedAt: timestamp('translated_at', { withTimezone: true }),
+    // Translation source tracking (how the translation was created)
+    matchSource: text('match_source'), // 'tm', 'ai', 'manual', null (manual is default)
+    matchPercent: integer('match_percent'), // TM match percentage (0-100) when pre-translated
     // Review tracking
     reviewedBy: uuid('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
