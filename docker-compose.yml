@@ -89,6 +89,9 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-oxy-documents}
       # PDF Converter
       PDF_CONVERTER_URL: http://127.0.0.1:${PDF_CONVERTER_PORT:-8001}
+      ADOBE_PDF_SERVICES_CLIENT_ID: ${ADOBE_PDF_SERVICES_CLIENT_ID}
+      ADOBE_PDF_SERVICES_CLIENT_SECRET: ${ADOBE_PDF_SERVICES_CLIENT_SECRET}
+      DEEPL_API_KEY: ${DEEPL_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
