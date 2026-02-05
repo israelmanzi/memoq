@@ -10,6 +10,7 @@ import {
   getAllowedSegmentStatuses,
   getAssignmentsForDocuments,
   filterDocumentsByAssignment,
+  getUserDocumentAssignment,
 } from '../services/document-assignment.service.js';
 import type { DocumentAssignmentFilter } from '@oxy/shared';
 import {
@@ -65,6 +66,7 @@ const updateSegmentSchema = z.object({
   status: z.enum(SEGMENT_STATUSES).optional(),
   confirm: z.boolean().optional(), // If true, also save to TM
   propagate: z.boolean().optional(), // If true, propagate to identical untranslated segments
+  matchSource: z.enum(['tm', 'ai', 'manual']).optional(), // Track translation source
 });
 
 const bulkUpdateSegmentsSchema = z.object({
@@ -748,11 +750,8 @@ export async function documentRoutes(app: FastifyInstance) {
       const membership = await getMembership(project.orgId, userId);
       const projectMembership = await getProjectMembership(project.id, userId);
 
-      const canUpdate =
+      const isAdminOrPM =
         membership?.role === 'admin' || projectMembership?.role === 'project_manager';
-      if (!canUpdate) {
-        return reply.status(403).send({ error: 'Only admins and project managers can update document status' });
-      }
 
       const schema = z.object({
         status: z.enum(WORKFLOW_STATUSES),
@@ -767,6 +766,38 @@ export async function documentRoutes(app: FastifyInstance) {
       }
 
       const targetStatus = parsed.data.status;
+
+      // Check if user can advance the workflow
+      // Admins and PMs can always update
+      // Translators can advance from translation to review_1
+      // Reviewers can advance from their review stage to the next
+      const docAssignment = await getUserDocumentAssignment(documentId, userId);
+      const currentStatus = doc.workflowStatus;
+
+      let canUpdate = isAdminOrPM;
+
+      if (!canUpdate && docAssignment) {
+        // Translator can advance from translation
+        if (currentStatus === 'translation' && docAssignment.role === 'translator' && targetStatus === 'review_1') {
+          canUpdate = true;
+        }
+        // For simple workflow, translator can mark complete
+        if (currentStatus === 'translation' && docAssignment.role === 'translator' && targetStatus === 'complete' && project.workflowType === 'simple') {
+          canUpdate = true;
+        }
+        // Reviewer 1 can advance from review_1
+        if (currentStatus === 'review_1' && docAssignment.role === 'reviewer_1' && (targetStatus === 'review_2' || targetStatus === 'complete')) {
+          canUpdate = true;
+        }
+        // Reviewer 2 can advance from review_2 to complete
+        if (currentStatus === 'review_2' && docAssignment.role === 'reviewer_2' && targetStatus === 'complete') {
+          canUpdate = true;
+        }
+      }
+
+      if (!canUpdate) {
+        return reply.status(403).send({ error: 'You cannot advance the workflow from the current stage' });
+      }
 
       // Validate transition unless forcing (admin only)
       if (!parsed.data.force || membership?.role !== 'admin') {
@@ -1076,6 +1107,7 @@ export async function documentRoutes(app: FastifyInstance) {
         targetText: parsed.data.targetText,
         status: finalStatus,
         lastModifiedBy: userId,
+        matchSource: parsed.data.matchSource,
       });
 
       // Log significant status changes
@@ -1142,12 +1174,12 @@ export async function documentRoutes(app: FastifyInstance) {
         });
       }
 
-      // Auto-refresh document workflow status
-      const newWorkflowStatus = await refreshDocumentWorkflowStatus(documentId);
+      // Don't auto-advance workflow - let user manually mark their stage complete
+      // This prevents locking out the translator after confirming the last segment
 
       return reply.send({
         ...updated,
-        documentWorkflowStatus: newWorkflowStatus,
+        documentWorkflowStatus: doc.workflowStatus,
         propagation: propagationResult,
       });
     }
@@ -1206,10 +1238,9 @@ export async function documentRoutes(app: FastifyInstance) {
 
       const count = await updateSegmentsBulk(updates);
 
-      // Auto-refresh document workflow status
-      const newWorkflowStatus = await refreshDocumentWorkflowStatus(documentId);
+      // Don't auto-advance workflow - let user manually mark their stage complete
 
-      return reply.send({ updated: count, documentWorkflowStatus: newWorkflowStatus });
+      return reply.send({ updated: count, documentWorkflowStatus: doc.workflowStatus });
     }
   );
 
@@ -1309,28 +1340,29 @@ export async function documentRoutes(app: FastifyInstance) {
         metadata: { assignedUserId: parsed.data.userId, role: parsed.data.role },
       });
 
-      // Send email notification to the assigned user
+      // Send email notification to the assigned user (non-blocking)
       if (isEmailEnabled()) {
-        try {
-          const [assignedUser, assignerUser] = await Promise.all([
-            findUserById(parsed.data.userId),
-            findUserById(userId),
-          ]);
-
-          if (assignedUser && assignerUser) {
-            await sendDocumentAssignmentEmail(
-              assignedUser.email,
-              assignedUser.name,
-              doc.name,
-              project.name,
-              parsed.data.role,
-              assignerUser.name
-            );
-          }
-        } catch (emailError) {
-          // Log but don't fail the assignment if email fails
-          request.log.warn({ error: emailError }, 'Failed to send assignment notification email');
-        }
+        // Fire-and-forget: don't await the email, let it run in background
+        Promise.all([
+          findUserById(parsed.data.userId),
+          findUserById(userId),
+        ])
+          .then(([assignedUser, assignerUser]) => {
+            if (assignedUser && assignerUser) {
+              return sendDocumentAssignmentEmail(
+                assignedUser.email,
+                assignedUser.name,
+                doc.name,
+                project.name,
+                parsed.data.role,
+                assignerUser.name
+              );
+            }
+          })
+          .catch((emailError) => {
+            // Log but don't fail the assignment if email fails
+            request.log.warn({ error: emailError }, 'Failed to send assignment notification email');
+          });
       }
 
       return reply.status(201).send(assignment);

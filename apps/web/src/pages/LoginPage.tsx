@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi, ApiError } from '../api';
 import { useAuthStore } from '../stores/auth';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { setAuth } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,6 +36,8 @@ export function LoginPage() {
         setMfaToken(data.mfaToken);
         setError('');
       } else if (data.user && data.token) {
+        // Clear any cached data from previous user sessions
+        queryClient.clear();
         setAuth(data.user, data.token);
         navigate({ to: '/dashboard' });
       }
@@ -90,7 +93,8 @@ export function LoginPage() {
     onSuccess: (data) => {
       // Show backup codes first, then allow user to continue
       setBackupCodes(data.backupCodes);
-      // Store auth for when user clicks continue
+      // Clear any cached data from previous user sessions and store auth
+      queryClient.clear();
       setAuth(data.user, data.token);
     },
     onError: (err) => {
@@ -106,6 +110,8 @@ export function LoginPage() {
   const mfaVerifyMutation = useMutation({
     mutationFn: () => authApi.verifyMFA(mfaToken!, mfaCode),
     onSuccess: (data) => {
+      // Clear any cached data from previous user sessions
+      queryClient.clear();
       setAuth(data.user, data.token);
       navigate({ to: '/dashboard' });
     },

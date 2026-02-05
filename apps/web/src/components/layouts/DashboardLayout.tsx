@@ -5,6 +5,7 @@ import { useAuthStore } from '../../stores/auth';
 import { useOrgStore } from '../../stores/org';
 import { OrgSwitcher } from '../OrgSwitcher';
 import { orgsApi } from '../../api';
+import { MobileDrawer, HamburgerButton } from '../mobile';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard' },
@@ -17,11 +18,14 @@ const navItems = [
 export function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user, logout } = useAuthStore();
   const { currentOrg, setCurrentOrg } = useOrgStore();
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Keyboard shortcut: "/" to focus search
@@ -41,6 +45,8 @@ export function DashboardLayout() {
   }, []);
 
   const handleLogout = () => {
+    // Clear all cached data to prevent stale data when another user logs in
+    queryClient.clear();
     logout();
     navigate({ to: '/login' });
   };
@@ -81,21 +87,34 @@ export function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-surface">
+      {/* Mobile Drawer */}
+      <MobileDrawer
+        isOpen={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        navItems={navItems}
+        user={user}
+        onLogout={handleLogout}
+        currentOrg={currentOrg}
+        orgSwitcher={hasOrgs ? <OrgSwitcher /> : undefined}
+      />
+
       {/* Header */}
-      <header className="bg-surface-alt border-b border-border">
+      <header className="bg-surface-alt border-b border-border sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between h-12">
-            {/* Left: Logo + Org Switcher */}
-            <div className="flex items-center gap-6">
+          <div className="flex items-center justify-between h-12 md:h-12">
+            {/* Left: Hamburger (mobile) + Logo + Org Switcher */}
+            <div className="flex items-center gap-2 md:gap-6">
+              <HamburgerButton onClick={() => setMobileMenuOpen(true)} />
               <Link to="/dashboard" className="text-base font-bold text-text">
                 OXY
               </Link>
-              {hasOrgs && <OrgSwitcher />}
+              {/* Org switcher - hidden on mobile (shown in drawer) */}
+              {hasOrgs && <div className="hidden md:block"><OrgSwitcher /></div>}
             </div>
 
-            {/* Center: Global Search */}
+            {/* Center: Global Search - hidden on mobile */}
             {currentOrg && (
-              <form onSubmit={handleSearch} className="flex-1 max-w-md mx-8">
+              <form onSubmit={handleSearch} className="hidden md:block flex-1 max-w-md mx-8">
                 <div className="relative">
                   <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -115,10 +134,23 @@ export function DashboardLayout() {
               </form>
             )}
 
-            {/* Right: User Menu */}
-            <div className="flex items-center gap-3">
-              {/* User Menu */}
-              <div className="relative">
+            {/* Right: Search button (mobile) + User Menu */}
+            <div className="flex items-center gap-1 md:gap-3">
+              {/* Mobile search toggle */}
+              {currentOrg && (
+                <button
+                  onClick={() => setShowMobileSearch(!showMobileSearch)}
+                  className="p-2 text-text-secondary hover:text-text min-h-touch min-w-touch flex items-center justify-center md:hidden"
+                  aria-label="Search"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </button>
+              )}
+
+              {/* User Menu - simplified on mobile */}
+              <div className="relative hidden md:block">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
                   className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text"
@@ -134,9 +166,9 @@ export function DashboardLayout() {
                       className="fixed inset-0 z-10"
                       onClick={() => setShowUserMenu(false)}
                     />
-                    <div className="absolute right-0 mt-1 w-44 bg-surface-alt border border-border shadow-lg z-20">
+                    <div className="absolute right-0 mt-1 w-48 bg-surface-alt border border-border shadow-lg z-20">
                       <div className="py-1">
-                        <div className="px-3 py-2 text-2xs text-text-muted border-b border-border-light">
+                        <div className="px-3 py-2 text-2xs text-text-muted border-b border-border-light truncate">
                           {user?.email}
                         </div>
                         <Link
@@ -160,11 +192,32 @@ export function DashboardLayout() {
             </div>
           </div>
         </div>
+
+        {/* Mobile Search Bar - expandable */}
+        {showMobileSearch && currentOrg && (
+          <div className="px-4 pb-3 md:hidden border-t border-border-light bg-surface-alt">
+            <form onSubmit={(e) => { handleSearch(e); setShowMobileSearch(false); }}>
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  autoFocus
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search..."
+                  className="w-full pl-10 pr-4 py-2.5 text-sm bg-surface border border-border text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+            </form>
+          </div>
+        )}
       </header>
 
-      {/* Navigation */}
+      {/* Navigation - hidden on mobile (shown in drawer) */}
       {currentOrg && (
-        <nav className="bg-surface-alt border-b border-border">
+        <nav className="hidden md:block bg-surface-alt border-b border-border">
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex gap-6">
               {navItems.map((item) => {
@@ -189,7 +242,7 @@ export function DashboardLayout() {
       )}
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto">
+      <main className="max-w-7xl mx-auto px-4 md:px-0">
         {orgsLoading ? (
           <div className="text-center py-12 text-text-muted text-sm">Loading...</div>
         ) : !hasOrgs ? (
@@ -273,8 +326,8 @@ function CreateOrgModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-surface-alt border border-border shadow-xl w-full max-w-md p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface-alt border border-border shadow-xl w-full max-w-md p-4 max-h-[90vh] overflow-y-auto">
         <h2 className="text-sm font-semibold text-text mb-3">Create Organization</h2>
 
         {error && (
