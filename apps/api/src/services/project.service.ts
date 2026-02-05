@@ -523,6 +523,8 @@ export async function updateSegment(
     status?: SegmentStatus;
     lockedBy?: string | null;
     lastModifiedBy?: string;
+    matchSource?: 'tm' | 'ai' | 'manual' | null;
+    matchPercent?: number | null;
   }
 ): Promise<Segment | null> {
   // Build update object with tracking fields
@@ -728,12 +730,14 @@ export async function preTranslateDocument(
         fuzzyMatches++;
       }
 
-      // Update segment with pre-translated text
+      // Update segment with pre-translated text and match tracking
       await db
         .update(segments)
         .set({
           targetText: bestMatch.targetText,
           status,
+          matchSource: 'tm',
+          matchPercent: bestMatch.matchPercent,
           updatedAt: new Date(),
         })
         .where(eq(segments.id, seg.id));

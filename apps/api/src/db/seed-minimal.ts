@@ -3,7 +3,7 @@
  * Documents can be uploaded through the UI
  */
 
-import { db, users, projectResources, initDb } from './index.js';
+import { db, users, initDb } from './index.js';
 import { eq } from 'drizzle-orm';
 import { createUser } from '../services/auth.service.js';
 import { createOrg, addMember } from '../services/org.service.js';
@@ -13,7 +13,7 @@ import { createTB, addTerm } from '../services/tb.service.js';
 const TEST_PASSWORD = 'Test@1234';
 
 const TEST_USERS = [
-  { name: 'Sarah Chen', email: 'manziisrael99+admin@gmail.com', role: 'org_admin' as const },
+  { name: 'Sarah Chen', email: 'manziisrael99+admin@gmail.com', role: 'admin' as const },
   { name: 'Marcus Rodriguez', email: 'manziisrael99+pm@gmail.com', role: 'project_manager' as const },
   { name: 'Elena Petrov', email: 'manziisrael99+translator@gmail.com', role: 'translator' as const },
   { name: 'David Park', email: 'manziisrael99+reviewer1@gmail.com', role: 'reviewer' as const },
@@ -56,24 +56,27 @@ async function seedMinimal() {
       console.log(`  ✓ ${userData.name} (${userData.email})`);
     }
 
+    const adminUser = createdUsers[0]!;
+
     // Create organization
     console.log('\n🏢 Creating organization...');
     const org = await createOrg({
       name: 'Global Translations Inc.',
       slug: 'global-translations',
-      createdBy: createdUsers[0].id,
+      createdBy: adminUser.id,
     });
     console.log(`  ✓ ${org.name}`);
 
     // Add members
     console.log('\n👤 Adding members...');
     for (let i = 1; i < createdUsers.length; i++) {
+      const member = createdUsers[i]!;
       await addMember({
         orgId: org.id,
-        userId: createdUsers[i].id,
-        role: createdUsers[i].role,
+        userId: member.id,
+        role: member.role,
       });
-      console.log(`  ✓ ${createdUsers[i].name}`);
+      console.log(`  ✓ ${member.name}`);
     }
 
     // Create TM
@@ -83,14 +86,14 @@ async function seedMinimal() {
       name: 'English → French TM',
       sourceLanguage: 'en',
       targetLanguage: 'fr',
-      createdBy: createdUsers[0].id,
+      createdBy: adminUser.id,
     });
     for (const unit of TM_UNITS) {
       await addTranslationUnit({
         tmId: tm.id,
         sourceText: unit.source,
         targetText: unit.target,
-        createdBy: createdUsers[0].id,
+        createdBy: adminUser.id,
       });
     }
     console.log(`  ✓ Added ${TM_UNITS.length} translation units`);
@@ -102,7 +105,7 @@ async function seedMinimal() {
       name: 'Software Terminology',
       sourceLanguage: 'en',
       targetLanguage: 'fr',
-      createdBy: createdUsers[0].id,
+      createdBy: adminUser.id,
     });
     for (const term of TERMINOLOGY) {
       await addTerm({
@@ -110,7 +113,7 @@ async function seedMinimal() {
         sourceTerm: term.source,
         targetTerm: term.target,
         definition: term.definition,
-        createdBy: createdUsers[0].id,
+        createdBy: adminUser.id,
       });
     }
     console.log(`  ✓ Added ${TERMINOLOGY.length} terms`);
@@ -130,7 +133,7 @@ async function seedMinimal() {
   }
 }
 
-if (import.meta.url.endsWith(process.argv[1])) {
+if (process.argv[1] && import.meta.url.endsWith(process.argv[1])) {
   seedMinimal();
 }
 

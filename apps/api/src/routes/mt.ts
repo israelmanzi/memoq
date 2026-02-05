@@ -21,7 +21,7 @@ const translateBatchSchema = z.object({
 export async function mtRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
 
-  // Check if MT is enabled
+  // Check if MT is enabled (fast - no external API call)
   app.get('/status', async (_request, reply) => {
     const enabled = isMTEnabled();
 
@@ -33,23 +33,30 @@ export async function mtRoutes(app: FastifyInstance) {
       });
     }
 
+    // Just return that MT is enabled - don't call DeepL API for usage
+    // This makes the status check instant instead of waiting for network
+    return reply.send({
+      enabled: true,
+      provider: 'deepl',
+      usage: null, // Usage fetched separately on-demand if needed
+    });
+  });
+
+  // Get usage stats (separate endpoint - only call when needed)
+  app.get('/usage', async (_request, reply) => {
+    if (!isMTEnabled()) {
+      return reply.status(503).send({ error: 'Machine translation is not configured' });
+    }
+
     try {
       const usage = await getUsage();
       return reply.send({
-        enabled: true,
-        provider: 'deepl',
-        usage: {
-          used: usage.characterCount,
-          limit: usage.characterLimit,
-          percentUsed: Math.round((usage.characterCount / usage.characterLimit) * 100),
-        },
+        used: usage.characterCount,
+        limit: usage.characterLimit,
+        percentUsed: Math.round((usage.characterCount / usage.characterLimit) * 100),
       });
-    } catch {
-      return reply.send({
-        enabled: true,
-        provider: 'deepl',
-        usage: null,
-      });
+    } catch (error) {
+      return reply.status(500).send({ error: 'Failed to get usage statistics' });
     }
   });
 
@@ -177,7 +184,7 @@ export async function mtRoutes(app: FastifyInstance) {
           targetLanguage: project.targetLanguage,
         });
 
-        // Update segments with translations
+        // Update segments with translations (track as AI translation)
         let updatedCount = 0;
         for (const translation of result.translations) {
           const segment = segmentsToTranslate[translation.index];
@@ -186,6 +193,8 @@ export async function mtRoutes(app: FastifyInstance) {
               targetText: translation.translatedText,
               status: 'draft',
               lastModifiedBy: userId,
+              matchSource: 'ai',
+              matchPercent: null, // AI translations don't have match percent
             });
             updatedCount++;
           }

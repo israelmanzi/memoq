@@ -5,13 +5,11 @@
 
 import { db, users, projectResources, initDb } from './index.js';
 import { eq } from 'drizzle-orm';
-import { hash } from 'argon2';
 import { createUser } from '../services/auth.service.js';
 import { createOrg, addMember } from '../services/org.service.js';
 import { createProject, addProjectMember, createDocument } from '../services/project.service.js';
 import { createTM, addTranslationUnit } from '../services/tm.service.js';
 import { createTB, addTerm } from '../services/tb.service.js';
-import { Buffer } from 'buffer';
 
 const TEST_PASSWORD = 'Test@1234'; // Password for all test accounts
 
@@ -20,31 +18,36 @@ const TEST_USERS = [
   {
     name: 'Sarah Chen',
     email: 'manziisrael99+admin@gmail.com',
-    role: 'org_admin' as const,
+    orgRole: 'admin' as const,
+    projectRole: 'project_manager' as const,
     title: 'Organization Administrator',
   },
   {
     name: 'Marcus Rodriguez',
     email: 'manziisrael99+pm@gmail.com',
-    role: 'project_manager' as const,
+    orgRole: 'project_manager' as const,
+    projectRole: 'project_manager' as const,
     title: 'Project Manager',
   },
   {
     name: 'Elena Petrov',
     email: 'manziisrael99+translator@gmail.com',
-    role: 'translator' as const,
+    orgRole: 'translator' as const,
+    projectRole: 'translator' as const,
     title: 'Senior Translator (French)',
   },
   {
     name: 'David Park',
     email: 'manziisrael99+reviewer1@gmail.com',
-    role: 'reviewer_1' as const,
+    orgRole: 'reviewer' as const,
+    projectRole: 'reviewer_1' as const,
     title: 'Quality Reviewer Level 1',
   },
   {
     name: 'Maria Santos',
     email: 'manziisrael99+reviewer2@gmail.com',
-    role: 'reviewer_2' as const,
+    orgRole: 'reviewer' as const,
+    projectRole: 'reviewer_2' as const,
     title: 'Quality Reviewer Level 2',
   },
 ];
@@ -185,7 +188,7 @@ async function seedTestData() {
           .set({ emailVerified: true, mfaEnabled: false })
           .where(eq(users.id, user.id));
 
-        createdUsers.push({ ...user, role: userData.role, title: userData.title });
+        createdUsers.push({ ...user, orgRole: userData.orgRole, projectRole: userData.projectRole, title: userData.title });
         console.log(`  ✓ Created ${userData.name} (${userData.email})`);
       } catch (error: any) {
         if (error.message?.includes('unique')) {
@@ -195,7 +198,7 @@ async function seedTestData() {
             where: (usersTable, { eq }) => eq(usersTable.email, userData.email),
           });
           if (existing) {
-            createdUsers.push({ ...existing, role: userData.role, title: userData.title });
+            createdUsers.push({ ...existing, orgRole: userData.orgRole, projectRole: userData.projectRole, title: userData.title });
           }
         } else {
           throw error;
@@ -203,26 +206,31 @@ async function seedTestData() {
       }
     }
 
+    const adminUser = createdUsers[0]!;
+    const pmUser = createdUsers[1]!;
+    const translatorUser = createdUsers[2]!;
+    const reviewer1User = createdUsers[3]!;
+    const reviewer2User = createdUsers[4]!;
+
     // Step 2: Create organization
     console.log('\n🏢 Creating test organization...');
     const org = await createOrg({
       name: 'Global Translations Inc.',
       slug: 'global-translations-inc',
-      createdBy: createdUsers[0].id, // Sarah (org admin)
+      createdBy: adminUser.id, // Sarah (org admin)
     });
     console.log(`  ✓ Created organization: ${org.name}`);
 
     // Step 3: Add members to organization
     console.log('\n👤 Adding members to organization...');
     for (let i = 1; i < createdUsers.length; i++) {
+      const member = createdUsers[i]!;
       await addMember({
         orgId: org.id,
-        userId: createdUsers[i].id,
-        role: createdUsers[i].role === 'reviewer_1' || createdUsers[i].role === 'reviewer_2'
-          ? 'reviewer'
-          : createdUsers[i].role,
+        userId: member.id,
+        role: member.orgRole,
       });
-      console.log(`  ✓ Added ${createdUsers[i].name} as ${createdUsers[i].role}`);
+      console.log(`  ✓ Added ${member.name} as ${member.orgRole}`);
     }
 
     // Step 4: Create Translation Memory
@@ -232,7 +240,7 @@ async function seedTestData() {
       name: 'English to French - Software & Marketing',
       sourceLanguage: 'en',
       targetLanguage: 'fr',
-      createdBy: createdUsers[0].id,
+      createdBy: adminUser.id,
     });
     console.log(`  ✓ Created TM: ${tm.name}`);
 
@@ -243,7 +251,7 @@ async function seedTestData() {
         tmId: tm.id,
         sourceText: unit.source,
         targetText: unit.target,
-        createdBy: createdUsers[0].id,
+        createdBy: adminUser.id,
       });
     }
     console.log(`  ✓ Added ${TM_UNITS.length} TM units`);
@@ -255,7 +263,7 @@ async function seedTestData() {
       name: 'Software & Business Terminology',
       sourceLanguage: 'en',
       targetLanguage: 'fr',
-      createdBy: createdUsers[0].id,
+      createdBy: adminUser.id,
     });
     console.log(`  ✓ Created TB: ${tb.name}`);
 
@@ -267,7 +275,7 @@ async function seedTestData() {
         sourceTerm: term.source,
         targetTerm: term.target,
         definition: term.definition,
-        createdBy: createdUsers[0].id,
+        createdBy: adminUser.id,
       });
     }
     console.log(`  ✓ Added ${TERMINOLOGY.length} terms`);
@@ -282,25 +290,25 @@ async function seedTestData() {
       sourceLanguage: 'en',
       targetLanguage: 'fr',
       workflowType: 'full_review',
-      deadline: new Date('2026-03-15'),
-      createdBy: createdUsers[1].id, // Marcus (PM)
+      deadline: '2026-03-15',
+      createdBy: pmUser.id, // Marcus (PM)
     });
     console.log(`  ✓ Created project: ${project1.name}`);
 
     // Add project members
     await addProjectMember({
       projectId: project1.id,
-      userId: createdUsers[2].id, // Elena (translator)
+      userId: translatorUser.id, // Elena (translator)
       role: 'translator',
     });
     await addProjectMember({
       projectId: project1.id,
-      userId: createdUsers[3].id, // David (reviewer 1)
+      userId: reviewer1User.id, // David (reviewer 1)
       role: 'reviewer_1',
     });
     await addProjectMember({
       projectId: project1.id,
-      userId: createdUsers[4].id, // Maria (reviewer 2)
+      userId: reviewer2User.id, // Maria (reviewer 2)
       role: 'reviewer_2',
     });
 
@@ -310,13 +318,13 @@ async function seedTestData() {
         projectId: project1.id,
         resourceType: 'translation_memory',
         resourceId: tm.id,
-        writable: true,
+        isWritable: true,
       },
       {
         projectId: project1.id,
         resourceType: 'term_base',
         resourceId: tb.id,
-        writable: true,
+        isWritable: true,
       },
     ]);
 
@@ -326,11 +334,9 @@ async function seedTestData() {
     const doc1 = await createDocument({
       projectId: project1.id,
       name: SAMPLE_CONTENT.softwareRelease.title,
-      sourceLanguage: 'en',
-      targetLanguage: 'fr',
-      format: 'txt',
-      content: Buffer.from(SAMPLE_CONTENT.softwareRelease.segments.join('\n\n')),
-      uploadedBy: createdUsers[1].id,
+      fileType: 'txt',
+      originalContent: SAMPLE_CONTENT.softwareRelease.segments.join('\n\n'),
+      createdBy: pmUser.id,
     });
     console.log(`  ✓ Created document: ${doc1.name}`);
 
@@ -341,27 +347,25 @@ async function seedTestData() {
       sourceLanguage: 'en',
       targetLanguage: 'fr',
       workflowType: 'single_review',
-      deadline: new Date('2026-04-30'),
-      createdBy: createdUsers[1].id,
+      deadline: '2026-04-30',
+      createdBy: pmUser.id,
     });
     console.log(`  ✓ Created project: ${project2.name}`);
 
-    await addProjectMember({ projectId: project2.id, userId: createdUsers[2].id, role: 'translator' });
-    await addProjectMember({ projectId: project2.id, userId: createdUsers[3].id, role: 'reviewer_1' });
+    await addProjectMember({ projectId: project2.id, userId: translatorUser.id, role: 'translator' });
+    await addProjectMember({ projectId: project2.id, userId: reviewer1User.id, role: 'reviewer_1' });
 
     await db.insert(projectResources).values([
-      { projectId: project2.id, resourceType: 'translation_memory', resourceId: tm.id, writable: true },
-      { projectId: project2.id, resourceType: 'term_base', resourceId: tb.id, writable: true },
+      { projectId: project2.id, resourceType: 'translation_memory', resourceId: tm.id, isWritable: true },
+      { projectId: project2.id, resourceType: 'term_base', resourceId: tb.id, isWritable: true },
     ]);
 
     const doc2 = await createDocument({
       projectId: project2.id,
       name: SAMPLE_CONTENT.marketingBrochure.title,
-      sourceLanguage: 'en',
-      targetLanguage: 'fr',
-      format: 'txt',
-      content: Buffer.from(SAMPLE_CONTENT.marketingBrochure.segments.join('\n\n')),
-      uploadedBy: createdUsers[1].id,
+      fileType: 'txt',
+      originalContent: SAMPLE_CONTENT.marketingBrochure.segments.join('\n\n'),
+      createdBy: pmUser.id,
     });
     console.log(`  ✓ Created document: ${doc2.name}`);
 
@@ -372,26 +376,24 @@ async function seedTestData() {
       sourceLanguage: 'en',
       targetLanguage: 'fr',
       workflowType: 'simple',
-      deadline: new Date('2026-05-15'),
-      createdBy: createdUsers[1].id,
+      deadline: '2026-05-15',
+      createdBy: pmUser.id,
     });
     console.log(`  ✓ Created project: ${project3.name}`);
 
-    await addProjectMember({ projectId: project3.id, userId: createdUsers[2].id, role: 'translator' });
+    await addProjectMember({ projectId: project3.id, userId: translatorUser.id, role: 'translator' });
 
     await db.insert(projectResources).values([
-      { projectId: project3.id, resourceType: 'translation_memory', resourceId: tm.id, writable: true },
-      { projectId: project3.id, resourceType: 'term_base', resourceId: tb.id, writable: true },
+      { projectId: project3.id, resourceType: 'translation_memory', resourceId: tm.id, isWritable: true },
+      { projectId: project3.id, resourceType: 'term_base', resourceId: tb.id, isWritable: true },
     ]);
 
     const doc3 = await createDocument({
       projectId: project3.id,
       name: SAMPLE_CONTENT.userManual.title,
-      sourceLanguage: 'en',
-      targetLanguage: 'fr',
-      format: 'txt',
-      content: Buffer.from(SAMPLE_CONTENT.userManual.segments.join('\n\n')),
-      uploadedBy: createdUsers[1].id,
+      fileType: 'txt',
+      originalContent: SAMPLE_CONTENT.userManual.segments.join('\n\n'),
+      createdBy: pmUser.id,
     });
     console.log(`  ✓ Created document: ${doc3.name}`);
 
@@ -444,7 +446,7 @@ async function seedTestData() {
 }
 
 // Run if called directly
-if (import.meta.url.endsWith(process.argv[1])) {
+if (process.argv[1] && import.meta.url.endsWith(process.argv[1])) {
   seedTestData();
 }
 

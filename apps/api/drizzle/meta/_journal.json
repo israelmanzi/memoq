@@ -50,6 +50,13 @@
       "when": 1770190829960,
       "tag": "0006_amusing_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1770273677926,
+      "tag": "0007_illegal_spot",
+      "breakpoints": true
     }
   ]
 }
