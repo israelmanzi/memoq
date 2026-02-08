@@ -10,6 +10,9 @@ import {
   getUserProductivity,
   getDocumentAnalytics,
   getProjectTimeline,
+  getOrgStatistics,
+  getOrgTimeline,
+  getOrgLeverage,
 } from '../services/analytics.service.js';
 import { findProjectById, findDocumentById } from '../services/project.service.js';
 import { getMembership } from '../services/org.service.js';
@@ -28,9 +31,80 @@ const documentAnalyticsSchema = z.object({
   documentId: z.string().uuid(),
 });
 
+const orgStatsSchema = z.object({
+  orgId: z.string().uuid(),
+});
 
 export async function analyticsRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate);
+
+  /**
+   * GET /org/:orgId/statistics
+   * Get organization-wide statistics across all projects
+   */
+  app.get('/org/:orgId/statistics', async (request, reply) => {
+    const { orgId } = orgStatsSchema.parse(request.params);
+
+    const membership = await getMembership(orgId, request.user.userId);
+    if (!membership) {
+      return reply.code(403).send({ error: 'Access denied' });
+    }
+
+    try {
+      const statistics = await getOrgStatistics(orgId);
+      return reply.send(statistics);
+    } catch (error) {
+      console.error('Org statistics error:', error);
+      return reply.code(500).send({ error: 'Failed to get organization statistics' });
+    }
+  });
+
+  /**
+   * GET /org/:orgId/timeline
+   * Get organization-wide activity timeline (daily breakdown)
+   */
+  app.get('/org/:orgId/timeline', async (request, reply) => {
+    const { orgId } = orgStatsSchema.parse(request.params);
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+
+    const membership = await getMembership(orgId, request.user.userId);
+    if (!membership) {
+      return reply.code(403).send({ error: 'Access denied' });
+    }
+
+    try {
+      const timeline = await getOrgTimeline(
+        orgId,
+        startDate ? new Date(startDate) : undefined,
+        endDate ? new Date(endDate) : undefined
+      );
+      return reply.send(timeline);
+    } catch (error) {
+      console.error('Org timeline error:', error);
+      return reply.code(500).send({ error: 'Failed to get organization timeline' });
+    }
+  });
+
+  /**
+   * GET /org/:orgId/leverage
+   * Get organization-wide TM leverage distribution
+   */
+  app.get('/org/:orgId/leverage', async (request, reply) => {
+    const { orgId } = orgStatsSchema.parse(request.params);
+
+    const membership = await getMembership(orgId, request.user.userId);
+    if (!membership) {
+      return reply.code(403).send({ error: 'Access denied' });
+    }
+
+    try {
+      const leverage = await getOrgLeverage(orgId);
+      return reply.send(leverage);
+    } catch (error) {
+      console.error('Org leverage error:', error);
+      return reply.code(500).send({ error: 'Failed to get organization leverage' });
+    }
+  });
 
   /**
    * POST /leverage-analysis

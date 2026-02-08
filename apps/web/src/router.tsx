@@ -15,6 +15,7 @@ import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { DocumentPage } from './pages/DocumentPage';
 import { TMListPage } from './pages/TMListPage';
 import { TBListPage } from './pages/TBListPage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SearchPage } from './pages/SearchPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -139,6 +140,12 @@ const tbRoute = createRoute({
   component: TBListPage,
 });
 
+const analyticsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/analytics',
+  component: AnalyticsPage,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: '/settings',
@@ -197,6 +204,7 @@ const routeTree = rootRoute.addChildren([
     documentRoute,
     tmRoute,
     tbRoute,
+    analyticsRoute,
     settingsRoute,
     searchRoute,
   ]),

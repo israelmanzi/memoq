@@ -13,6 +13,7 @@ import {
   segmentComments,
   projectMembers,
   orgMemberships,
+  projects,
 } from '../db/index.js';
 import { listDocumentSegments, findProjectById } from './project.service.js';
 import { findMatches } from './tm.service.js';
@@ -948,4 +949,498 @@ export async function getProjectTimeline(
 
   // Sort by date and return
   return Array.from(timelineMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ============ Organization Statistics ============
+
+export interface OrgStatistics {
+  orgId: string;
+  totalProjects: number;
+  activeProjects: number;
+  totalDocuments: number;
+  totalSegments: number;
+  totalSourceWords: number;
+  totalTargetWords: number;
+  segmentsByStatus: {
+    untranslated: number;
+    draft: number;
+    translated: number;
+    reviewed1: number;
+    reviewed2: number;
+    locked: number;
+  };
+  overallProgress: {
+    translation: number;
+    review1: number;
+    review2: number;
+    complete: number;
+  };
+  qualityMetrics: {
+    totalComments: number;
+    unresolvedComments: number;
+  };
+  projectBreakdown: Array<{
+    projectId: string;
+    projectName: string;
+    sourceLanguage: string;
+    targetLanguage: string;
+    status: string;
+    documentCount: number;
+    segmentCount: number;
+    sourceWords: number;
+    progressPercentage: number;
+    deadline: Date | null;
+    isOverdue: boolean;
+  }>;
+}
+
+export interface OrgLeverageAnalysis {
+  totalSegments: number;
+  totalWords: number;
+  matchDistribution: {
+    exact: { count: number; words: number; percentage: number };
+    fuzzyHigh: { count: number; words: number; percentage: number };
+    fuzzyMid: { count: number; words: number; percentage: number };
+    fuzzyLow: { count: number; words: number; percentage: number };
+    aiTranslation: { count: number; words: number; percentage: number };
+    noMatch: { count: number; words: number; percentage: number };
+    repetitions: { count: number; words: number; percentage: number };
+  };
+}
+
+/**
+ * Get comprehensive organization-level statistics across all projects
+ */
+export async function getOrgStatistics(orgId: string): Promise<OrgStatistics> {
+  // Get all projects in the org
+  const orgProjects = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.orgId, orgId));
+
+  if (orgProjects.length === 0) {
+    return {
+      orgId,
+      totalProjects: 0,
+      activeProjects: 0,
+      totalDocuments: 0,
+      totalSegments: 0,
+      totalSourceWords: 0,
+      totalTargetWords: 0,
+      segmentsByStatus: { untranslated: 0, draft: 0, translated: 0, reviewed1: 0, reviewed2: 0, locked: 0 },
+      overallProgress: { translation: 0, review1: 0, review2: 0, complete: 0 },
+      qualityMetrics: { totalComments: 0, unresolvedComments: 0 },
+      projectBreakdown: [],
+    };
+  }
+
+  const projectIds = orgProjects.map((p) => p.id);
+  const activeProjects = orgProjects.filter((p) => p.status === 'active');
+
+  // Get all documents across org projects
+  const allDocs = await db
+    .select()
+    .from(documents)
+    .where(inArray(documents.projectId, projectIds));
+
+  const docIds = allDocs.map((d) => d.id);
+
+  // Aggregate segment data
+  let totalSegments = 0;
+  let totalSourceWords = 0;
+  let totalTargetWords = 0;
+  const segmentsByStatusInternal: Record<string, number> = {
+    untranslated: 0,
+    draft: 0,
+    translated: 0,
+    reviewed_1: 0,
+    reviewed_2: 0,
+    locked: 0,
+  };
+
+  // Per-project tracking
+  const projectDocCount = new Map<string, number>();
+  const projectSegCount = new Map<string, number>();
+  const projectSourceWords = new Map<string, number>();
+  const projectTranslatedCount = new Map<string, number>();
+  let qualityMetrics = { totalComments: 0, unresolvedComments: 0 };
+
+  for (const doc of allDocs) {
+    projectDocCount.set(doc.projectId, (projectDocCount.get(doc.projectId) || 0) + 1);
+  }
+
+  if (docIds.length > 0) {
+    const allSegments = await db
+      .select()
+      .from(segments)
+      .innerJoin(documents, eq(segments.documentId, documents.id))
+      .where(inArray(segments.documentId, docIds));
+
+    totalSegments = allSegments.length;
+
+    for (const { segments: seg, documents: doc } of allSegments) {
+      const sourceWords = seg.sourceText.split(/\s+/).filter(Boolean).length;
+      const targetWords = seg.targetText ? seg.targetText.split(/\s+/).filter(Boolean).length : 0;
+      totalSourceWords += sourceWords;
+      totalTargetWords += targetWords;
+
+      const status = seg.status ?? 'untranslated';
+      if (status in segmentsByStatusInternal && segmentsByStatusInternal[status] !== undefined) {
+        segmentsByStatusInternal[status] = segmentsByStatusInternal[status] + 1;
+      }
+
+      // Per-project tracking
+      const pid = doc.projectId;
+      projectSegCount.set(pid, (projectSegCount.get(pid) || 0) + 1);
+      projectSourceWords.set(pid, (projectSourceWords.get(pid) || 0) + sourceWords);
+
+      const isTranslated = status === 'translated' || status === 'reviewed_1' || status === 'reviewed_2' || status === 'locked';
+      if (isTranslated) {
+        projectTranslatedCount.set(pid, (projectTranslatedCount.get(pid) || 0) + 1);
+      }
+    }
+
+    // Get quality metrics
+    const segmentIds = allSegments.map((s) => s.segments.id);
+    if (segmentIds.length > 0) {
+      const [commentStats] = await db
+        .select({
+          totalComments: sql<number>`count(*)::int`,
+          unresolvedComments: sql<number>`count(*) filter (where ${segmentComments.resolved} = false)::int`,
+        })
+        .from(segmentComments)
+        .where(inArray(segmentComments.segmentId, segmentIds));
+
+      qualityMetrics = {
+        totalComments: commentStats?.totalComments ?? 0,
+        unresolvedComments: commentStats?.unresolvedComments ?? 0,
+      };
+    }
+  }
+
+  const segmentsByStatus = {
+    untranslated: segmentsByStatusInternal.untranslated ?? 0,
+    draft: segmentsByStatusInternal.draft ?? 0,
+    translated: segmentsByStatusInternal.translated ?? 0,
+    reviewed1: segmentsByStatusInternal.reviewed_1 ?? 0,
+    reviewed2: segmentsByStatusInternal.reviewed_2 ?? 0,
+    locked: segmentsByStatusInternal.locked ?? 0,
+  };
+
+  // Overall progress
+  const translatedCount = segmentsByStatus.translated + segmentsByStatus.reviewed1 + segmentsByStatus.reviewed2 + segmentsByStatus.locked;
+  const reviewed1Count = segmentsByStatus.reviewed1 + segmentsByStatus.reviewed2 + segmentsByStatus.locked;
+  const reviewed2Count = segmentsByStatus.reviewed2 + segmentsByStatus.locked;
+  const completeCount = segmentsByStatus.locked;
+
+  const overallProgress = {
+    translation: totalSegments > 0 ? Math.round((translatedCount / totalSegments) * 100) : 0,
+    review1: totalSegments > 0 ? Math.round((reviewed1Count / totalSegments) * 100) : 0,
+    review2: totalSegments > 0 ? Math.round((reviewed2Count / totalSegments) * 100) : 0,
+    complete: totalSegments > 0 ? Math.round((completeCount / totalSegments) * 100) : 0,
+  };
+
+  // Build per-project breakdown
+  const now = new Date();
+  const projectBreakdown = orgProjects.map((p) => {
+    const segCount = projectSegCount.get(p.id) || 0;
+    const transCount = projectTranslatedCount.get(p.id) || 0;
+    const deadline = p.deadline ? new Date(p.deadline) : null;
+    return {
+      projectId: p.id,
+      projectName: p.name,
+      sourceLanguage: p.sourceLanguage,
+      targetLanguage: p.targetLanguage,
+      status: p.status ?? 'active',
+      documentCount: projectDocCount.get(p.id) || 0,
+      segmentCount: segCount,
+      sourceWords: projectSourceWords.get(p.id) || 0,
+      progressPercentage: segCount > 0 ? Math.round((transCount / segCount) * 100) : 0,
+      deadline,
+      isOverdue: deadline ? deadline.getTime() < now.getTime() : false,
+    };
+  }).sort((a, b) => b.segmentCount - a.segmentCount);
+
+  return {
+    orgId,
+    totalProjects: orgProjects.length,
+    activeProjects: activeProjects.length,
+    totalDocuments: allDocs.length,
+    totalSegments,
+    totalSourceWords,
+    totalTargetWords,
+    segmentsByStatus,
+    overallProgress,
+    qualityMetrics,
+    projectBreakdown,
+  };
+}
+
+// ============ Organization Timeline ============
+
+/**
+ * Get org-wide activity timeline (daily breakdown across all projects)
+ */
+export async function getOrgTimeline(
+  orgId: string,
+  startDate?: Date,
+  endDate?: Date
+): Promise<ProjectTimeline[]> {
+  // Default to last 30 days
+  const effectiveStart = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const effectiveEnd = endDate || new Date();
+
+  const orgProjects = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.orgId, orgId));
+
+  if (orgProjects.length === 0) return [];
+
+  const projectIds = orgProjects.map((p) => p.id);
+
+  const allDocs = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(inArray(documents.projectId, projectIds));
+
+  const docIds = allDocs.map((d) => d.id);
+  if (docIds.length === 0) return [];
+
+  // Get daily translation activity
+  const translationTimeline = await db
+    .select({
+      date: sql<string>`date(${segments.translatedAt})`,
+      segmentsCompleted: sql<number>`count(*)::int`,
+      wordsTranslated: sql<number>`coalesce(sum(array_length(regexp_split_to_array(${segments.targetText}, '\\s+'), 1)), 0)::int`,
+      activeUsers: sql<number>`count(distinct ${segments.translatedBy})::int`,
+    })
+    .from(segments)
+    .where(
+      and(
+        inArray(segments.documentId, docIds),
+        sql`${segments.translatedAt} is not null`,
+        gte(segments.translatedAt, effectiveStart),
+        lte(segments.translatedAt, effectiveEnd)
+      )
+    )
+    .groupBy(sql`date(${segments.translatedAt})`)
+    .orderBy(asc(sql`date(${segments.translatedAt})`));
+
+  // Get daily review activity
+  const reviewTimeline = await db
+    .select({
+      date: sql<string>`date(${segments.reviewedAt})`,
+      segmentsReviewed: sql<number>`count(*)::int`,
+      activeUsers: sql<number>`count(distinct ${segments.reviewedBy})::int`,
+    })
+    .from(segments)
+    .where(
+      and(
+        inArray(segments.documentId, docIds),
+        sql`${segments.reviewedAt} is not null`,
+        gte(segments.reviewedAt, effectiveStart),
+        lte(segments.reviewedAt, effectiveEnd)
+      )
+    )
+    .groupBy(sql`date(${segments.reviewedAt})`)
+    .orderBy(asc(sql`date(${segments.reviewedAt})`));
+
+  // Get daily comment counts
+  const commentTimeline = await db
+    .select({
+      date: sql<string>`date(${segmentComments.createdAt})`,
+      commentsAdded: sql<number>`count(*)::int`,
+    })
+    .from(segmentComments)
+    .innerJoin(segments, eq(segmentComments.segmentId, segments.id))
+    .where(
+      and(
+        inArray(segments.documentId, docIds),
+        gte(segmentComments.createdAt, effectiveStart),
+        lte(segmentComments.createdAt, effectiveEnd)
+      )
+    )
+    .groupBy(sql`date(${segmentComments.createdAt})`)
+    .orderBy(asc(sql`date(${segmentComments.createdAt})`));
+
+  // Merge all timelines
+  const timelineMap = new Map<string, ProjectTimeline>();
+
+  for (const t of translationTimeline) {
+    if (t.date) {
+      timelineMap.set(t.date, {
+        date: t.date,
+        segmentsCompleted: t.segmentsCompleted,
+        wordsTranslated: t.wordsTranslated || 0,
+        commentsAdded: 0,
+        activeUsers: t.activeUsers,
+      });
+    }
+  }
+
+  for (const r of reviewTimeline) {
+    if (r.date) {
+      const existing = timelineMap.get(r.date);
+      if (existing) {
+        existing.segmentsCompleted += r.segmentsReviewed;
+        existing.activeUsers = Math.max(existing.activeUsers, r.activeUsers);
+      } else {
+        timelineMap.set(r.date, {
+          date: r.date,
+          segmentsCompleted: r.segmentsReviewed,
+          wordsTranslated: 0,
+          commentsAdded: 0,
+          activeUsers: r.activeUsers,
+        });
+      }
+    }
+  }
+
+  for (const c of commentTimeline) {
+    if (c.date) {
+      const existing = timelineMap.get(c.date);
+      if (existing) {
+        existing.commentsAdded = c.commentsAdded;
+      } else {
+        timelineMap.set(c.date, {
+          date: c.date,
+          segmentsCompleted: 0,
+          wordsTranslated: 0,
+          commentsAdded: c.commentsAdded,
+          activeUsers: 1,
+        });
+      }
+    }
+  }
+
+  return Array.from(timelineMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ============ Organization TM Leverage ============
+
+/**
+ * Get org-wide TM leverage distribution using stored matchSource/matchPercent fields
+ */
+export async function getOrgLeverage(orgId: string): Promise<OrgLeverageAnalysis> {
+  const orgProjects = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.orgId, orgId));
+
+  if (orgProjects.length === 0) {
+    return {
+      totalSegments: 0,
+      totalWords: 0,
+      matchDistribution: {
+        exact: { count: 0, words: 0, percentage: 0 },
+        fuzzyHigh: { count: 0, words: 0, percentage: 0 },
+        fuzzyMid: { count: 0, words: 0, percentage: 0 },
+        fuzzyLow: { count: 0, words: 0, percentage: 0 },
+        aiTranslation: { count: 0, words: 0, percentage: 0 },
+        noMatch: { count: 0, words: 0, percentage: 0 },
+        repetitions: { count: 0, words: 0, percentage: 0 },
+      },
+    };
+  }
+
+  const projectIds = orgProjects.map((p) => p.id);
+
+  const allDocs = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(inArray(documents.projectId, projectIds));
+
+  const docIds = allDocs.map((d) => d.id);
+  if (docIds.length === 0) {
+    return {
+      totalSegments: 0,
+      totalWords: 0,
+      matchDistribution: {
+        exact: { count: 0, words: 0, percentage: 0 },
+        fuzzyHigh: { count: 0, words: 0, percentage: 0 },
+        fuzzyMid: { count: 0, words: 0, percentage: 0 },
+        fuzzyLow: { count: 0, words: 0, percentage: 0 },
+        aiTranslation: { count: 0, words: 0, percentage: 0 },
+        noMatch: { count: 0, words: 0, percentage: 0 },
+        repetitions: { count: 0, words: 0, percentage: 0 },
+      },
+    };
+  }
+
+  // Single aggregate query with FILTER clauses
+  const [matchStats] = await db
+    .select({
+      totalSegments: sql<number>`count(*)::int`,
+      totalWords: sql<number>`coalesce(sum(array_length(regexp_split_to_array(${segments.sourceText}, '\\s+'), 1)), 0)::int`,
+      exactCount: sql<number>`count(*) filter (where ${segments.matchSource} = 'tm' and ${segments.matchPercent} = 100)::int`,
+      exactWords: sql<number>`coalesce(sum(array_length(regexp_split_to_array(${segments.sourceText}, '\\s+'), 1)) filter (where ${segments.matchSource} = 'tm' and ${segments.matchPercent} = 100), 0)::int`,
+      fuzzyHighCount: sql<number>`count(*) filter (where ${segments.matchSource} = 'tm' and ${segments.matchPercent} >= 95 and ${segments.matchPercent} < 100)::int`,
+      fuzzyHighWords: sql<number>`coalesce(sum(array_length(regexp_split_to_array(${segments.sourceText}, '\\s+'), 1)) filter (where ${segments.matchSource} = 'tm' and ${segments.matchPercent} >= 95 and ${segments.matchPercent} < 100), 0)::int`,
+      fuzzyMidCount: sql<number>`count(*) filter (where ${segments.matchSource} = 'tm' and ${segments.matchPercent} >= 85 and ${segments.matchPercent} < 95)::int`,
+      fuzzyMidWords: sql<number>`coalesce(sum(array_length(regexp_split_to_array(${segments.sourceText}, '\\s+'), 1)) filter (where ${segments.matchSource} = 'tm' and ${segments.matchPercent} >= 85 and ${segments.matchPercent} < 95), 0)::int`,
+      fuzzyLowCount: sql<number>`count(*) filter (where ${segments.matchSource} = 'tm' and ${segments.matchPercent} >= 75 and ${segments.matchPercent} < 85)::int`,
+      fuzzyLowWords: sql<number>`coalesce(sum(array_length(regexp_split_to_array(${segments.sourceText}, '\\s+'), 1)) filter (where ${segments.matchSource} = 'tm' and ${segments.matchPercent} >= 75 and ${segments.matchPercent} < 85), 0)::int`,
+      aiCount: sql<number>`count(*) filter (where ${segments.matchSource} = 'ai')::int`,
+      aiWords: sql<number>`coalesce(sum(array_length(regexp_split_to_array(${segments.sourceText}, '\\s+'), 1)) filter (where ${segments.matchSource} = 'ai'), 0)::int`,
+    })
+    .from(segments)
+    .where(inArray(segments.documentId, docIds));
+
+  // Detect repetitions via window function
+  const [repStats] = await db
+    .select({
+      repCount: sql<number>`count(*)::int`,
+      repWords: sql<number>`coalesce(sum(words), 0)::int`,
+    })
+    .from(
+      sql`(
+        select
+          array_length(regexp_split_to_array(${segments.sourceText}, '\\s+'), 1) as words,
+          row_number() over (partition by ${segments.documentId}, lower(trim(${segments.sourceText})) order by ${segments.segmentIndex}) as rn
+        from ${segments}
+        where ${segments.documentId} = any(${sql`array[${sql.join(docIds.map(id => sql`${id}::uuid`), sql`, `)}]`})
+      ) sub where rn > 1`
+    );
+
+  const totalSegments = matchStats?.totalSegments ?? 0;
+  const totalWords = matchStats?.totalWords ?? 0;
+  const repCount = repStats?.repCount ?? 0;
+  const repWords = repStats?.repWords ?? 0;
+
+  // noMatch = everything that isn't tm-matched, ai-translated, or repetitions
+  const tmMatchedCount =
+    (matchStats?.exactCount ?? 0) +
+    (matchStats?.fuzzyHighCount ?? 0) +
+    (matchStats?.fuzzyMidCount ?? 0) +
+    (matchStats?.fuzzyLowCount ?? 0);
+  const tmMatchedWords =
+    (matchStats?.exactWords ?? 0) +
+    (matchStats?.fuzzyHighWords ?? 0) +
+    (matchStats?.fuzzyMidWords ?? 0) +
+    (matchStats?.fuzzyLowWords ?? 0);
+  const aiCount = matchStats?.aiCount ?? 0;
+  const aiWords = matchStats?.aiWords ?? 0;
+
+  const noMatchCount = Math.max(0, totalSegments - tmMatchedCount - aiCount - repCount);
+  const noMatchWords = Math.max(0, totalWords - tmMatchedWords - aiWords - repWords);
+
+  const dist = {
+    exact: { count: matchStats?.exactCount ?? 0, words: matchStats?.exactWords ?? 0, percentage: 0 },
+    fuzzyHigh: { count: matchStats?.fuzzyHighCount ?? 0, words: matchStats?.fuzzyHighWords ?? 0, percentage: 0 },
+    fuzzyMid: { count: matchStats?.fuzzyMidCount ?? 0, words: matchStats?.fuzzyMidWords ?? 0, percentage: 0 },
+    fuzzyLow: { count: matchStats?.fuzzyLowCount ?? 0, words: matchStats?.fuzzyLowWords ?? 0, percentage: 0 },
+    aiTranslation: { count: aiCount, words: aiWords, percentage: 0 },
+    noMatch: { count: noMatchCount, words: noMatchWords, percentage: 0 },
+    repetitions: { count: repCount, words: repWords, percentage: 0 },
+  };
+
+  // Calculate percentages
+  for (const key of Object.keys(dist) as Array<keyof typeof dist>) {
+    dist[key].percentage = totalSegments > 0
+      ? Math.round((dist[key].count / totalSegments) * 100)
+      : 0;
+  }
+
+  return { totalSegments, totalWords, matchDistribution: dist };
 }

@@ -120,6 +120,50 @@ export interface DocumentAnalytics {
   contributors: Contributor[];
 }
 
+// Organization Statistics Types
+export interface OrgProjectBreakdown {
+  projectId: string;
+  projectName: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  status: string;
+  documentCount: number;
+  segmentCount: number;
+  sourceWords: number;
+  progressPercentage: number;
+  deadline: string | null;
+  isOverdue: boolean;
+}
+
+export interface OrgStatistics {
+  orgId: string;
+  totalProjects: number;
+  activeProjects: number;
+  totalDocuments: number;
+  totalSegments: number;
+  totalSourceWords: number;
+  totalTargetWords: number;
+  segmentsByStatus: {
+    untranslated: number;
+    draft: number;
+    translated: number;
+    reviewed1: number;
+    reviewed2: number;
+    locked: number;
+  };
+  overallProgress: {
+    translation: number;
+    review1: number;
+    review2: number;
+    complete: number;
+  };
+  qualityMetrics: {
+    totalComments: number;
+    unresolvedComments: number;
+  };
+  projectBreakdown: OrgProjectBreakdown[];
+}
+
 // Project Timeline Types
 export interface ProjectTimelineEntry {
   date: string;
@@ -127,6 +171,21 @@ export interface ProjectTimelineEntry {
   wordsTranslated: number;
   commentsAdded: number;
   activeUsers: number;
+}
+
+// Organization Leverage Types
+export interface OrgLeverageAnalysis {
+  totalSegments: number;
+  totalWords: number;
+  matchDistribution: {
+    exact: { count: number; words: number; percentage: number };
+    fuzzyHigh: { count: number; words: number; percentage: number };
+    fuzzyMid: { count: number; words: number; percentage: number };
+    fuzzyLow: { count: number; words: number; percentage: number };
+    aiTranslation: { count: number; words: number; percentage: number };
+    noMatch: { count: number; words: number; percentage: number };
+    repetitions: { count: number; words: number; percentage: number };
+  };
 }
 
 export const analyticsApi = {
@@ -141,6 +200,13 @@ export const analyticsApi = {
       documentId,
       projectId,
     });
+  },
+
+  /**
+   * Get organization statistics
+   */
+  async getOrgStatistics(orgId: string): Promise<OrgStatistics> {
+    return api.get(`/analytics/org/${orgId}/statistics`);
   },
 
   /**
@@ -192,5 +258,27 @@ export const analyticsApi = {
       startDate,
       endDate,
     });
+  },
+
+  /**
+   * Get organization-wide activity timeline
+   */
+  async getOrgTimeline(
+    orgId: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<ProjectTimelineEntry[]> {
+    const params = new URLSearchParams();
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
+    const qs = params.toString();
+    return api.get(`/analytics/org/${orgId}/timeline${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * Get organization-wide TM leverage distribution
+   */
+  async getOrgLeverage(orgId: string): Promise<OrgLeverageAnalysis> {
+    return api.get(`/analytics/org/${orgId}/leverage`);
   },
 };

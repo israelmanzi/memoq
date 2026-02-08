@@ -375,7 +375,7 @@ export function DocumentPage() {
   };
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col bg-surface">
+    <div className="h-[calc(100vh-3rem)] md:h-[calc(100vh-2.5rem)] flex flex-col bg-surface">
       {/* Compact Header Bar */}
       <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-surface-panel border-b border-border">
         {/* Left: Navigation + Title */}

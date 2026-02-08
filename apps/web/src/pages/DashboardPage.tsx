@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { projectsApi, tmApi, tbApi, activityApi } from '../api';
+import { projectsApi, tmApi, tbApi, activityApi, analyticsApi } from '../api';
 import { useOrgStore } from '../stores/org';
 import { formatWorkflowType } from '../utils/formatters';
 import { ActivityFeed } from '../components/ActivityFeed';
@@ -32,6 +32,13 @@ export function DashboardPage() {
     enabled: !!currentOrg,
   });
 
+  const { data: orgStats } = useQuery({
+    queryKey: ['org-statistics', currentOrg?.id],
+    queryFn: () => analyticsApi.getOrgStatistics(currentOrg!.id),
+    enabled: !!currentOrg,
+    refetchInterval: 60000,
+  });
+
   const projects = projectsData?.items ?? [];
   const tms = tmsData?.items ?? [];
   const tbs = tbsData?.items ?? [];
@@ -46,41 +53,93 @@ export function DashboardPage() {
         <p className="text-sm text-text-secondary">{currentOrg?.name}</p>
       </div>
 
-      {/* Main content grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Left column: Stats + Recent Projects */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Stats Row */}
-          <div className="grid grid-cols-3 gap-3">
-            <Link
-              to="/projects"
-              className="bg-surface-alt p-3 border border-border hover:border-accent transition-colors"
-              title="Number of projects currently in progress"
-            >
-              <div className="text-2xs font-medium text-text-muted uppercase tracking-wide">Active Projects</div>
-              <div className="mt-1 text-xl font-bold text-text">{activeProjects.length}</div>
-            </Link>
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <Link
+          to="/projects"
+          className="bg-surface-alt p-3 border border-border hover:border-accent transition-colors"
+          title="Number of projects currently in progress"
+        >
+          <div className="text-2xs font-medium text-text-muted uppercase tracking-wide">Active Projects</div>
+          <div className="mt-1 text-xl font-bold text-text">{activeProjects.length}</div>
+          <div className="text-2xs text-text-muted">{projects.length} total</div>
+        </Link>
 
-            <Link
-              to="/tm"
-              className="bg-surface-alt p-3 border border-border hover:border-accent transition-colors"
-              title="Translation Memories store previously translated content for reuse"
-            >
-              <div className="text-2xs font-medium text-text-muted uppercase tracking-wide">Translation Memories</div>
-              <div className="mt-1 text-xl font-bold text-text">{tms.length}</div>
-            </Link>
+        <Link
+          to="/tm"
+          className="bg-surface-alt p-3 border border-border hover:border-accent transition-colors"
+          title="Translation Memories store previously translated content for reuse"
+        >
+          <div className="text-2xs font-medium text-text-muted uppercase tracking-wide">Translation Memories</div>
+          <div className="mt-1 text-xl font-bold text-text">{tms.length}</div>
+        </Link>
 
-            <Link
-              to="/tb"
-              className="bg-surface-alt p-3 border border-border hover:border-accent transition-colors"
-              title="Term Bases contain approved terminology for consistent translations"
-            >
-              <div className="text-2xs font-medium text-text-muted uppercase tracking-wide">Term Bases</div>
-              <div className="mt-1 text-xl font-bold text-text">{tbs.length}</div>
-            </Link>
+        <Link
+          to="/tb"
+          className="bg-surface-alt p-3 border border-border hover:border-accent transition-colors"
+          title="Term Bases contain approved terminology for consistent translations"
+        >
+          <div className="text-2xs font-medium text-text-muted uppercase tracking-wide">Term Bases</div>
+          <div className="mt-1 text-xl font-bold text-text">{tbs.length}</div>
+        </Link>
+
+        <Link
+          to="/analytics"
+          className="bg-surface-alt p-3 border border-border hover:border-accent transition-colors"
+          title="Total segments across all projects"
+        >
+          <div className="text-2xs font-medium text-text-muted uppercase tracking-wide">Total Segments</div>
+          <div className="mt-1 text-xl font-bold text-text">{orgStats?.totalSegments?.toLocaleString() ?? '—'}</div>
+          <div className="text-2xs text-text-muted">{orgStats?.totalSourceWords?.toLocaleString() ?? '—'} words</div>
+        </Link>
+      </div>
+
+      {/* Progress + Status row */}
+      {orgStats && orgStats.totalSegments > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {/* Overall Progress */}
+          <div className="bg-surface-alt border border-border">
+            <div className="px-3 py-2 border-b border-border bg-surface-panel flex items-center justify-between">
+              <h2 className="text-sm font-medium text-text">Overall Progress</h2>
+              <Link to="/analytics" className="text-xs text-accent hover:text-accent-hover">Details</Link>
+            </div>
+            <div className="p-3 space-y-2.5">
+              <ProgressBar label="Translation" percentage={orgStats.overallProgress.translation} color="bg-accent" />
+              <ProgressBar label="Review 1" percentage={orgStats.overallProgress.review1} color="bg-warning" />
+              <ProgressBar label="Review 2" percentage={orgStats.overallProgress.review2} color="bg-accent-muted" />
+              <ProgressBar label="Complete" percentage={orgStats.overallProgress.complete} color="bg-success" />
+            </div>
           </div>
 
-          {/* Recent Projects */}
+          {/* Segment Status */}
+          <div className="bg-surface-alt border border-border">
+            <div className="px-3 py-2 border-b border-border bg-surface-panel">
+              <h2 className="text-sm font-medium text-text">Segment Status</h2>
+            </div>
+            <div className="p-3">
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <StatusCard label="Untranslated" value={orgStats.segmentsByStatus.untranslated} />
+                <StatusCard label="Draft" value={orgStats.segmentsByStatus.draft} />
+                <StatusCard label="Translated" value={orgStats.segmentsByStatus.translated} color="text-accent" />
+                <StatusCard label="Reviewed L1" value={orgStats.segmentsByStatus.reviewed1} color="text-warning" />
+                <StatusCard label="Reviewed L2" value={orgStats.segmentsByStatus.reviewed2} color="text-accent-muted" />
+                <StatusCard label="Locked" value={orgStats.segmentsByStatus.locked} color="text-success" />
+              </div>
+              {orgStats.qualityMetrics.unresolvedComments > 0 && (
+                <div className="pt-2 border-t border-border-light flex items-center gap-2 text-xs">
+                  <span className="text-warning font-medium">{orgStats.qualityMetrics.unresolvedComments}</span>
+                  <span className="text-text-muted">unresolved comments across projects</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main content grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Left column: Recent Projects */}
+        <div className="lg:col-span-2 space-y-4">
           <div className="bg-surface-alt border border-border">
             <div className="px-3 py-2 border-b border-border flex items-center justify-between bg-surface-panel">
               <h2 className="text-sm font-medium text-text">Recent Projects</h2>
@@ -92,37 +151,61 @@ export function DashboardPage() {
               </Link>
             </div>
             <div className="divide-y divide-border-light">
-              {activeProjects.slice(0, 5).map((project) => (
-                <Link
-                  key={project.id}
-                  to="/projects/$projectId"
-                  params={{ projectId: project.id }}
-                  className="block px-3 py-2.5 hover:bg-surface-hover"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm text-text truncate">{project.name}</span>
-                        <span className="flex-shrink-0 px-1.5 py-0.5 text-2xs font-medium bg-surface-panel text-text-secondary">
-                          {project.sourceLanguage} → {project.targetLanguage}
-                        </span>
+              {activeProjects.slice(0, 5).map((project) => {
+                const breakdown = orgStats?.projectBreakdown.find((p) => p.projectId === project.id);
+                return (
+                  <Link
+                    key={project.id}
+                    to="/projects/$projectId"
+                    params={{ projectId: project.id }}
+                    className="block px-3 py-2.5 hover:bg-surface-hover"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm text-text truncate">{project.name}</span>
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-2xs font-medium bg-surface-panel text-text-secondary">
+                            {project.sourceLanguage} → {project.targetLanguage}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">
+                          <span>{formatWorkflowType(project.workflowType)}</span>
+                          {project.createdByName && (
+                            <>
+                              <span className="text-border">·</span>
+                              <span>{project.createdByName}</span>
+                            </>
+                          )}
+                          {breakdown && (
+                            <>
+                              <span className="text-border">·</span>
+                              <span>{breakdown.segmentCount.toLocaleString()} seg</span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">
-                        <span>{formatWorkflowType(project.workflowType)}</span>
-                        {project.createdByName && (
-                          <>
-                            <span className="text-border">•</span>
-                            <span>{project.createdByName}</span>
-                          </>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {breakdown && (
+                          <span className={`text-xs font-medium ${
+                            breakdown.progressPercentage === 100 ? 'text-success' :
+                            breakdown.progressPercentage > 50 ? 'text-accent' : 'text-text-muted'
+                          }`}>
+                            {breakdown.progressPercentage}%
+                          </span>
                         )}
+                        <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
                       </div>
                     </div>
-                    <svg className="w-4 h-4 text-text-muted flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </Link>
-              ))}
+                    {breakdown && (
+                      <div className="mt-1.5 h-1 bg-surface overflow-hidden">
+                        <div className="h-full bg-accent transition-all" style={{ width: `${breakdown.progressPercentage}%` }}></div>
+                      </div>
+                    )}
+                  </Link>
+                );
+              })}
               {activeProjects.length === 0 && (
                 <div className="px-3 py-6 text-center">
                   <p className="text-sm text-text-muted">No active projects</p>
@@ -160,6 +243,29 @@ export function DashboardPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ProgressBar({ label, percentage, color }: { label: string; percentage: number; color: string }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1 text-xs">
+        <span className="text-text-muted">{label}</span>
+        <span className="text-text">{percentage}%</span>
+      </div>
+      <div className="h-1 bg-surface overflow-hidden">
+        <div className={`h-full ${color} transition-all`} style={{ width: `${percentage}%` }}></div>
+      </div>
+    </div>
+  );
+}
+
+function StatusCard({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div className="text-center py-1.5 bg-surface">
+      <div className={`text-sm font-medium ${color || 'text-text-secondary'}`}>{value.toLocaleString()}</div>
+      <div className="text-2xs text-text-muted">{label}</div>
     </div>
   );
 }
